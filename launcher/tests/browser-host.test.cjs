@@ -1755,7 +1755,7 @@ test("expiry cancellation preserves a changed owner and keeps failed cleanup vis
       removeTurnTab: () => removed.push(tab.id),
       logger: { warn: event => warnings.push(event) },
     });
-    await fixture.reapExpiredTurnTabs(120_000);
+    await fixture.reapExpiredTurnTabs(200_000);
     assert.deepEqual(removed, []);
     assert.equal(fixture.turnTabs.get(tab.id), tab);
     assert.equal(tab.expiryCancellation, undefined);

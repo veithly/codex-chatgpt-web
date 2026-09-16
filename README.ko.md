@@ -110,6 +110,60 @@ inbound 포트를 열거나 라우터 포트 포워딩을 설정할 필요가 �
 </details>
 
 <details>
+<summary><strong>오픈 하네스 게이트웨이(모든 클라이언트, API 키 불필요)</strong></summary>
+
+<a id="open-harness-gateway"></a>
+
+로컬 데몬은 Codex뿐 아니라 모든 하네스에 ChatGPT Web 모델을 제공합니다. 모든 엔드포인트는
+루프백 전용이며 임의의 API 키 값으로 동작하고, 클라이언트 쪽에는 OpenAI나 Anthropic 계정이
+필요 없습니다. 로그인은 런처 내장 브라우저의 ChatGPT Web 세션이 유일합니다.
+
+| 서피스 | 엔드포인트 | 비고 |
+| --- | --- | --- |
+| OpenAI Responses | `POST /v1/responses` | 표준 본문으로 동작. Codex turn 메타데이터는 선택 |
+| OpenAI Chat Completions | `POST /v1/chat/completions` | 스트리밍, `reasoning_content`, 함수 도구, 이미지 |
+| Anthropic Messages | `POST /v1/messages` (`/v1/messages/count_tokens` 포함) | Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:17841`과 임의의 `ANTHROPIC_AUTH_TOKEN` 설정 |
+| 모델 카탈로그 | `GET /v1/models` | 인증 없이는 OpenAI 형식 목록. 인증 시에는 네이티브 Codex 카탈로그 유지 |
+
+어떤 모델 문자열이든 허용됩니다. `chatgpt-web/<slug>`는 그대로 사용되고, `gpt-*`, `claude-*` 등의
+문자열은 `reasoning_effort`와 이름 특성(haiku→Instant, sonnet→High, opus→Pro)을 참고해 계정에서
+사용 가능한 라우트로 매핑됩니다. 안정적인 `prompt_cache_key`(또는 MCP `session_id`)를 전달하면
+같은 브라우저 대화를 계속 사용하며 Luna 롤링 체크포인트 압축도 유지됩니다.
+
+도구 호출(aider, Claude Code, OpenAI SDK 에이전트)은 프롬프트 수준 도구 프로토콜로 동작합니다.
+모델이 센티넬 구분 블록으로 도구 호출을 답하면 게이트웨이가 이를 표준 tool calls로 변환하고,
+다음 요청의 도구 결과는 대화 기록으로 반환됩니다. Zero Risk(수동) 모드에는 자동 라우트가 없으므로
+게이트웨이에는 With Automation이 필요합니다.
+
+예 — ChatGPT 계정으로 Claude Code 사용:
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:17841"
+export ANTHROPIC_AUTH_TOKEN="local-bridge"   # any value; requests stay on loopback
+export ANTHROPIC_MODEL="claude-sonnet-4-5"   # mapped to ChatGPT Web High
+claude
+```
+
+예 — OpenAI SDK / aider 스타일: base URL `http://127.0.0.1:17841/v1`, API 키는 임의값, 모델은
+`chatgpt-web/high` (또는 `gpt-5.6`, `claude-sonnet-4-5` 등).
+
+한 명령으로 모델을 로컬 하네스의 MCP 서버로 등록할 수 있습니다:
+
+```bash
+codex-chatgpt-web harness install all        # or: claude-code | zcode | pi | omp
+codex-chatgpt-web harness list               # show detection + install state
+```
+
+MCP 서버(`chatgpt_web_chat`, `chatgpt_web_models`, `chatgpt_web_reset`)는 세션별로 기록을 유지하고
+세션별로 안정적인 캐시 키를 전달하므로, 연속 호출은 새 대화를 열지 않고 같은 브라우저 대화를
+이어갑니다.
+
+`~/.codex-chatgpt-web/config.json`에 `"temporaryChat": false`를 설정하면 Temporary Chat 대신
+일반(기록에 남는) 채팅으로 턴을 진행합니다. 기본값은 Temporary입니다.
+
+</details>
+
+<details>
 <summary><strong>진단 및 서브에이전트</strong></summary>
 
 <a id="operations"></a>

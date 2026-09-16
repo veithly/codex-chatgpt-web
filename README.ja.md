@@ -110,6 +110,60 @@ ChatGPT のツール呼び出しを現在の Codex タスクへ接続します�
 </details>
 
 <details>
+<summary><strong>オープン harness ゲートウェイ（任意クライアント、API キー不要）</strong></summary>
+
+<a id="open-harness-gateway"></a>
+
+ローカルデーモンは Codex だけでなく、任意の harness に ChatGPT Web モデルを提供します。すべての
+エンドポイントはループバック限定で、ダミーの API キー値で動作し、クライアント側に OpenAI や
+Anthropic のアカウントは不要です。ログインはランチャー内蔵ブラウザの ChatGPT Web セッションだけです。
+
+| サーフェス | エンドポイント | 備考 |
+| --- | --- | --- |
+| OpenAI Responses | `POST /v1/responses` | 標準のボディで動作。Codex turn メタデータは任意 |
+| OpenAI Chat Completions | `POST /v1/chat/completions` | ストリーミング、`reasoning_content`、関数ツール、画像 |
+| Anthropic Messages | `POST /v1/messages`（`/v1/messages/count_tokens` 含む） | Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:17841` と任意の `ANTHROPIC_AUTH_TOKEN` を設定 |
+| モデルカタログ | `GET /v1/models` | 認証なしでは OpenAI 形式のリスト。認証付きではネイティブの Codex カタログのまま |
+
+任意のモデル名を受け付けます。`chatgpt-web/<slug>` はそのまま使用し、`gpt-*`、`claude-*` などの
+文字列は `reasoning_effort` と名前の傾向（haiku→Instant、sonnet→High、opus→Pro）から利用可能な
+ルートへマッピングします。安定した `prompt_cache_key`（または MCP の `session_id`）を渡すと、
+同じブラウザ会話を継続利用でき、Luna のローリングチェックポイント圧縮も保持されます。
+
+ツール呼び出し（aider、Claude Code、OpenAI SDK エージェント）はプロンプトレベルのツールプロトコルで
+実現しています。モデルはセンチネル区切りブロックでツール呼び出しを答え、ゲートウェイがそれを標準的な
+tool calls へ変換し、次のリクエストのツール結果は会話履歴として返ります。Zero Risk（手動）モードには
+自動ルートがないため、ゲートウェイには「With Automation」が必要です。
+
+例 — ChatGPT アカウントで Claude Code を使う:
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:17841"
+export ANTHROPIC_AUTH_TOKEN="local-bridge"   # any value; requests stay on loopback
+export ANTHROPIC_MODEL="claude-sonnet-4-5"   # mapped to ChatGPT Web High
+claude
+```
+
+例 — OpenAI SDK / aider 系: base URL `http://127.0.0.1:17841/v1`、API キーは任意、モデルは
+`chatgpt-web/high`（または `gpt-5.6`、`claude-sonnet-4-5` など）。
+
+1 コマンドでモデルをローカル harness の MCP サーバーとして登録できます:
+
+```bash
+codex-chatgpt-web harness install all        # or: claude-code | zcode | pi | omp
+codex-chatgpt-web harness list               # show detection + install state
+```
+
+MCP サーバー（`chatgpt_web_chat`、`chatgpt_web_models`、`chatgpt_web_reset`）はセッションごとに
+履歴を保持し、セッションごとに安定したキャッシュキーを渡すため、連続する呼び出しは新しい会話を
+開かずに同じブラウザ会話を続けます。
+
+`~/.codex-chatgpt-web/config.json` に `"temporaryChat": false` を設定すると、Temporary Chat の代わりに
+通常（履歴に残る）チャットでターンを実行します。デフォルトは Temporary のままです。
+
+</details>
+
+<details>
 <summary><strong>診断とサブエージェント</strong></summary>
 
 <a id="operations"></a>

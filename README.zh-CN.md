@@ -136,8 +136,8 @@ Claude Code 示例：
 
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:17841"
-export ANTHROPIC_AUTH_TOKEN="local-bridge"   # 任意值；请求仅走本机回环
-export ANTHROPIC_MODEL="claude-sonnet-4-5"   # 映射到 ChatGPT Web High
+export ANTHROPIC_AUTH_TOKEN="local-bridge"   # any value; requests stay on loopback
+export ANTHROPIC_MODEL="claude-sonnet-4-5"   # mapped to ChatGPT Web High
 claude
 ```
 
@@ -147,8 +147,8 @@ OpenAI SDK / aider 示例：base URL `http://127.0.0.1:17841/v1`，API Key 任�
 一条命令把模型注册为本地 harness 的 MCP 服务器：
 
 ```bash
-codex-chatgpt-web harness install all        # 或：claude-code | zcode | pi | omp
-codex-chatgpt-web harness list               # 查看检测与安装状态
+codex-chatgpt-web harness install all        # or: claude-code | zcode | pi | omp
+codex-chatgpt-web harness list               # show detection + install state
 ```
 
 MCP 服务器提供 `chatgpt_web_chat`、`chatgpt_web_models`、`chatgpt_web_reset` 三个工具；按

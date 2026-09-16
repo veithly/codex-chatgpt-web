@@ -78,14 +78,15 @@ test("a helper that is genuinely gone is still reaped on the ordinary cadence", 
     bootstrapReady: true, lastHeartbeatAt: 1_000,
   };
   const host = {
-    lastTurnSweepAt: 56_000,
+    lastTurnSweepAt: 195_000,
     turnTabs: new Map([["t1", tab]]),
     logger: { warn: () => {}, info: () => {} },
     removeTurnTab: t => reaped.push(t.traceId),
     refreshTurnLeases: BrowserHost.prototype.refreshTurnLeases,
   };
 
-  BrowserHost.prototype.reapExpiredTurnTabs.call(host, 61_000);
+  // 199s without a heartbeat exceeds the raised 180s reap budget.
+  BrowserHost.prototype.reapExpiredTurnTabs.call(host, 200_000);
 
   assert.deepEqual(reaped, ["trace-1"]);
 });
