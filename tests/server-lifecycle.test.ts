@@ -1320,10 +1320,12 @@ test("model catalog health distinguishes no request, transport failure, upstream
   const health = async () => await (await fetch(`${base}/healthz`)).json() as Record<string, any>;
   try {
     expect(await health()).toMatchObject({ model_catalog_requests: 0, last_model_catalog_result: null });
+    // Unauthenticated harness clients get the gateway catalog (OpenAI list shape) without touching
+    // the authenticated native upstream, so no catalog health result is recorded for them.
     const unauthenticated = await fetch(`${base}/v1/models`);
-    expect(unauthenticated.status).toBe(502);
-    await unauthenticated.text();
-    expect((await health()).last_model_catalog_result.failure.stage).toBe("request");
+    expect(unauthenticated.status).toBe(200);
+    expect(((await unauthenticated.json()) as { object?: string }).object).toBe("list");
+    expect(await health()).toMatchObject({ model_catalog_requests: 0, last_model_catalog_result: null });
     for (const [next, status, stage] of [
       ["transport", 502, "transport"], ["denied", 403, "upstream"], ["invalid", 502, "catalog"], ["ready", 200, undefined],
     ] as const) {
@@ -1338,7 +1340,8 @@ test("model catalog health distinguishes no request, transport failure, upstream
       expect(JSON.stringify(snapshot)).not.toContain("private");
       expect(snapshot.successful_model_catalog_requests).toBe(next === "ready" ? 1 : 0);
     }
-    expect((await health()).model_catalog_requests).toBe(5);
+    // Four authenticated upstream attempts; the unauthenticated gateway catalog never reaches upstream.
+    expect((await health()).model_catalog_requests).toBe(4);
   } finally {
     await server.stop(true);
   }
