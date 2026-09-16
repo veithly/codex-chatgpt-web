@@ -44,7 +44,12 @@ const HIDDEN_TURN_VIEWPORT = Object.freeze({ width: 800, height: 600 });
 const TURN_HEARTBEAT_SWEEP_MS = 5_000;
 const TURN_HEARTBEAT_TIMEOUT_MS = 180_000;
 const TURN_TAB_BOOTSTRAP_TIMEOUT_MS = 120_000;
-const RETAINED_TURN_TAB_TTL_MS = 30 * 60 * 1000;
+// How long a finished (ready) chat page stays open after its conversation completes, waiting
+// for a follow-up on the same session before it is closed. Configurable via the core config's
+// retainedConversationIdleMinutes (default 10 minutes).
+const RETAINED_TURN_TAB_TTL_MS = 10 * 60 * 1000;
+const MIN_RETAINED_TURN_TAB_TTL_MS = 60_000;
+const MAX_RETAINED_TURN_TAB_TTL_MS = 24 * 60 * 60 * 1000;
 const BROWSER_NAVIGATION_TIMEOUT_MS = 60_000;
 const CHATGPT_AUTH_SESSION_TIMEOUT_MS = 5_000;
 const WINDOW_VISIBILITY_EVENTS = ["show", "hide", "minimize", "restore"];
@@ -319,6 +324,7 @@ class BrowserHost {
     clipboardApi = clipboard,
     getBrowserInteractionMode = () => "automatic",
     getTurnSurfaceUrl = () => TEMPORARY_CHAT_URL,
+    getRetainedConversationTtlMs = () => RETAINED_TURN_TAB_TTL_MS,
   }) {
     if (typeof getConnectorName !== "function") {
       throw new Error("Browser host connector-name resolver is unavailable");
@@ -352,6 +358,10 @@ class BrowserHost {
       throw new Error("Browser host turn-surface resolver is unavailable");
     }
     this.getTurnSurfaceUrl = getTurnSurfaceUrl;
+    if (typeof getRetainedConversationTtlMs !== "function") {
+      throw new Error("Browser host retained-conversation TTL resolver is unavailable");
+    }
+    this.getRetainedConversationTtlMs = getRetainedConversationTtlMs;
     this.runBrowserHelperOperation = runBrowserHelperOperation;
     this.verifyConnectorWithBrowserHelper = verifyConnectorWithBrowserHelper;
     this.surfaceId = randomBytes(24).toString("base64url");
@@ -1363,7 +1373,7 @@ class BrowserHost {
     for (const tab of [...this.turnTabs.values()]) {
       if (tab.interactionMode === "manual") {
         if (tab.status === "ready") {
-          if (now - (tab.lastHeartbeatAt ?? 0) < RETAINED_TURN_TAB_TTL_MS) continue;
+          if (now - (tab.lastHeartbeatAt ?? 0) < (this.retainedConversationTtlMs ? this.retainedConversationTtlMs() : RETAINED_TURN_TAB_TTL_MS)) continue;
           this.logger.info("browser.retained_tab_expired", { tabId: tab.id, traceId: tab.traceId });
           this.removeTurnTab(tab, false);
           continue;
@@ -1381,7 +1391,7 @@ class BrowserHost {
         continue;
       }
       if (tab.status === "ready") {
-        if (now - (tab.lastHeartbeatAt ?? 0) < RETAINED_TURN_TAB_TTL_MS) continue;
+        if (now - (tab.lastHeartbeatAt ?? 0) < (this.retainedConversationTtlMs ? this.retainedConversationTtlMs() : RETAINED_TURN_TAB_TTL_MS)) continue;
         this.logger.info("browser.retained_tab_expired", { tabId: tab.id, traceId: tab.traceId });
         this.removeTurnTab(tab, false);
         continue;
@@ -2246,6 +2256,14 @@ class BrowserHost {
   }
 
   /** The chat surface this host opens for automatic turns: Temporary Chat unless persistent chats are configured. */
+  retainedConversationTtlMs() {
+    // Test doubles may construct a bare prototype host without the resolver wired.
+    const ttl = typeof this.getRetainedConversationTtlMs === "function" ? this.getRetainedConversationTtlMs() : RETAINED_TURN_TAB_TTL_MS;
+    return Number.isFinite(ttl) && ttl >= MIN_RETAINED_TURN_TAB_TTL_MS
+      ? Math.min(MAX_RETAINED_TURN_TAB_TTL_MS, ttl)
+      : RETAINED_TURN_TAB_TTL_MS;
+  }
+
   turnSurfaceUrl() {
     // Test doubles may construct a bare prototype host without the resolver wired.
     const url = typeof this.getTurnSurfaceUrl === "function" ? this.getTurnSurfaceUrl() : undefined;

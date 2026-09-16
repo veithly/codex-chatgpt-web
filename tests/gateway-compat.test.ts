@@ -52,7 +52,7 @@ function post(url: string, body: unknown, headers: Record<string, string> = {}):
 }
 
 describe("gateway turn synthesis", () => {
-  test("synthesizes turn identity and tags the current user message", () => {
+  test("synthesizes turn identity and tags every conversation message", () => {
     const body: Record<string, unknown> = {
       model: "chatgpt-web/high",
       input: [
@@ -63,15 +63,39 @@ describe("gateway turn synthesis", () => {
     };
     const synthesis = synthesizeGatewayTurnContext(body);
     expect(synthesis).toBeDefined();
+    expect(synthesis!.stableThread).toBeTrue();
     const metadata = (body.client_metadata as Record<string, unknown>)["x-codex-turn-metadata"] as string;
     expect(JSON.parse(metadata)).toMatchObject({ thread_id: expect.any(String), turn_id: expect.any(String), request_kind: "turn" });
     const input = body.input as Array<Record<string, unknown>>;
-    const last = input[input.length - 1]!;
-    expect((last.internal_chat_message_metadata_passthrough as Record<string, unknown>).turn_id).toBe(
-      JSON.parse(metadata).turn_id,
-    );
-    // Earlier history stays untagged for fresh threads.
-    expect(input[0]!.internal_chat_message_metadata_passthrough).toBeUndefined();
+    // Deterministic ids tag every message so retained-chat reuse and Luna checkpoints can match.
+    for (const item of input) {
+      expect(item.internal_chat_message_metadata_passthrough).toMatchObject({ turn_id: expect.any(String) });
+    }
+  });
+
+  test("the same growing conversation derives one stable thread without prompt_cache_key", () => {
+    const turn = (messages: Array<{ role: string; text: string }>) => {
+      const body: Record<string, unknown> = {
+        model: "chatgpt-web/high",
+        input: messages.map(message => ({
+          type: "message",
+          role: message.role,
+          content: [{ type: message.role === "user" ? "input_text" : "output_text", text: message.text }],
+        })),
+      };
+      synthesizeGatewayTurnContext(body);
+      const metadata = (body.client_metadata as Record<string, unknown>)["x-codex-turn-metadata"] as string;
+      return JSON.parse(metadata).thread_id as string;
+    };
+    const first = turn([{ role: "user", text: "fix the login bug" }]);
+    const second = turn([
+      { role: "user", text: "fix the login bug" },
+      { role: "assistant", text: "I looked at auth.ts." },
+      { role: "user", text: "now add a test" },
+    ]);
+    expect(second).toBe(first);
+    const other = turn([{ role: "user", text: "a completely different task" }]);
+    expect(other).not.toBe(first);
   });
 
   test("synthesized bodies satisfy the real adapter authority chain", () => {

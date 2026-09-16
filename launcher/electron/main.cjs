@@ -1117,6 +1117,16 @@ async function start() {
         return "https://chatgpt.com/?temporary-chat=true";
       }
     },
+    // A finished chat page stays open for this long after its conversation completes, waiting for
+    // a same-session follow-up before the tab is closed (core config, default 10 minutes).
+    getRetainedConversationTtlMs: () => {
+      try {
+        const minutes = runtimeHost.runtimeConfigSnapshot().config?.retainedConversationIdleMinutes;
+        return Number.isFinite(minutes) ? minutes * 60_000 : 10 * 60_000;
+      } catch {
+        return 10 * 60_000;
+      }
+    },
   });
   await browserHost.ready();
   const updaterRuntimeRoot = runtimeRootProvider();

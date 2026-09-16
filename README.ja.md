@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">すべてのリリース</a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">すべてのリリース</a>
 </p>
 
 <p align="center">
@@ -158,8 +158,13 @@ MCP サーバー（`chatgpt_web_chat`、`chatgpt_web_models`、`chatgpt_web_rese
 履歴を保持し、セッションごとに安定したキャッシュキーを渡すため、連続する呼び出しは新しい会話を
 開かずに同じブラウザ会話を続けます。
 
-`~/.codex-chatgpt-web/config.json` に `"temporaryChat": false` を設定すると、Temporary Chat の代わりに
-通常（履歴に残る）チャットでターンを実行します。デフォルトは Temporary のままです。
+セッション動作: 同一会話の連続リクエストは、設定なしで同じブラウザチャット内で処理されます。
+ゲートウェイは会話の先頭（モデル + instructions + 最初のユーザーメッセージ）から安定した
+セッションキーを導出し、明示的な `prompt_cache_key`（または MCP `session_id`）があればそれを優先します。
+会話が終わってもページはすぐには閉じず、`retainedConversationIdleMinutes`（既定 10 分）間同じ
+セッションの追送を待ってから閉じられます。`~/.codex-chatgpt-web/config.json` に
+`"temporaryChat": false` を設定すると、Temporary Chat の代わりに通常（履歴に残る）チャットで
+ターンを実行します。デフォルトは Temporary のままです。
 
 </details>
 

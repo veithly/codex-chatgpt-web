@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">All releases</a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">All releases</a>
 </p>
 
 <p align="center">
@@ -157,11 +157,14 @@ The MCP server (`chatgpt_web_chat`, `chatgpt_web_models`, `chatgpt_web_reset`) k
 history and passes a stable cache key per session, so sequential calls continue the same browser
 chat instead of opening a fresh one.
 
-Session behavior: passing a stable `prompt_cache_key` (or MCP `session_id`) reuses the retained
-browser conversation across turns — follow-up messages continue the SAME ChatGPT chat, and Luna's
-rolling checkpoint keeps compressing it. Without a stable key every request opens a fresh
-conversation. Set `"temporaryChat": false` in `~/.codex-chatgpt-web/config.json` to run turns
-through normal (history-visible) chats instead of Temporary Chats; the default stays Temporary.
+Session behavior: sequential requests of one conversation are served in the SAME browser chat —
+no configuration needed. The gateway derives a stable session from the conversation head (model +
+instructions + first user message); an explicit `prompt_cache_key` (or MCP `session_id`) overrides
+that derivation and is the way to keep two same-head conversations separate. A finished chat page
+stays open afterwards waiting for a same-session follow-up and is closed only after
+`retainedConversationIdleMinutes` (default 10) idle minutes. Set `"temporaryChat": false` in
+`~/.codex-chatgpt-web/config.json` to run turns through normal (history-visible) chats instead of
+Temporary Chats; the default stays Temporary.
 
 </details>
 

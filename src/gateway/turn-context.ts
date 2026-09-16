@@ -32,11 +32,33 @@ function hasClientTurnMetadata(body: Record<string, unknown>): boolean {
   return metadata["x-codex-turn-metadata"] !== undefined;
 }
 
-function stableThreadKey(body: Record<string, unknown>): string | undefined {
+function stableThreadKey(body: Record<string, unknown>): string {
   const key = body.prompt_cache_key;
-  if (typeof key !== "string") return undefined;
-  const trimmed = key.trim();
-  return THREAD_ID_PATTERN.test(trimmed) ? trimmed : undefined;
+  if (typeof key === "string") {
+    const trimmed = key.trim();
+    if (THREAD_ID_PATTERN.test(trimmed)) return trimmed;
+  }
+  // No client-supplied session key: derive one deterministically from the conversation's stable
+  // head (model + instructions + first user message). Requests that belong to the same harness
+  // conversation produce the same key as the history grows, so they reuse one browser chat;
+  // genuinely different conversations almost always differ in their first user message and map to
+  // separate threads.
+  const input = Array.isArray(body.input) ? body.input : [];
+  let firstUserText = typeof body.input === "string" ? body.input : "";
+  for (const item of input) {
+    if (isRecord(item) && item.type === "message" && item.role === "user") {
+      firstUserText = rawItemText(item);
+      break;
+    }
+  }
+  const digest = createHash("sha256")
+    .update([
+      typeof body.model === "string" ? body.model : "",
+      typeof body.instructions === "string" ? body.instructions : "",
+      firstUserText,
+    ].join("\u0000"))
+    .digest("hex");
+  return `auto${digest.slice(0, 24)}`;
 }
 
 function gatewayUserTurnId(threadId: string, text: string): string {
@@ -76,16 +98,17 @@ function tagAssistantItem(item: Record<string, unknown>, turnId: string): void {
  * turn metadata (the caller must then run the turn with browser-only capabilities), and undefined
  * when the body already carries native Codex authority.
  *
- * With a valid `prompt_cache_key`, the thread key is stable across requests and every user message
- * receives a deterministic turn id (keyed by thread + message text). That lets the Luna rolling
- * checkpoint store match the exact parent assistant answer across harness turns. Without one, each
- * request is an independent thread: only the final user message is tagged, and no cross-request
- * state is ever reused.
+ * Every gateway request gets a stable thread key — the client's `prompt_cache_key` when present,
+ * otherwise one derived from the conversation's stable head (model + instructions + first user
+ * message). User and assistant messages receive deterministic turn ids keyed by thread + message
+ * text, so sequential requests of one conversation keep their identity across replay: the adapter
+ * reuses the retained browser chat for follow-ups, and Luna's rolling checkpoint store matches the
+ * exact parent assistant answer. Clients that want an isolated conversation should send a unique
+ * `prompt_cache_key` (or change the conversation head).
  */
 export function synthesizeGatewayTurnContext(body: Record<string, unknown>): GatewayTurnSynthesis | undefined {
   if (hasClientTurnMetadata(body)) return undefined;
-  const stableKey = stableThreadKey(body);
-  const threadId = stableKey ?? `gw${crypto.randomUUID().replaceAll("-", "")}`;
+  const threadId = stableThreadKey(body);
   const input = Array.isArray(body.input) ? body.input : undefined;
   let turnId: string;
 
@@ -93,7 +116,7 @@ export function synthesizeGatewayTurnContext(body: Record<string, unknown>): Gat
     // String (or absent) input: normalize to one tagged user message item so the adapter's
     // current-turn user revision is discoverable in the raw body.
     const text = typeof body.input === "string" ? body.input : "";
-    turnId = stableKey ? gatewayUserTurnId(threadId, text) : `gwturn${crypto.randomUUID().replaceAll("-", "")}`;
+    turnId = gatewayUserTurnId(threadId, text);
     body.input = [{
       type: "message",
       role: "user",
@@ -110,25 +133,20 @@ export function synthesizeGatewayTurnContext(body: Record<string, unknown>): Gat
         break;
       }
     }
-    if (stableKey) {
-      // Deterministic ids: replaying the same conversation always tags the same messages with the
-      // same turn ids, which is what the exact-parent Luna checkpoint matching requires.
-      let activeTurnId: string | undefined;
-      for (let index = 0; index < input.length; index += 1) {
-        const item = input[index];
-        if (!isRecord(item) || item.type !== "message") continue;
-        if (item.role === "user") {
-          activeTurnId = gatewayUserTurnId(threadId, rawItemText(item));
-          tagUserItem(item, activeTurnId);
-        } else if (item.role === "assistant" && activeTurnId) {
-          tagAssistantItem(item, activeTurnId);
-        }
+    // Deterministic ids: replaying the same conversation always tags the same messages with the
+    // same turn ids, which is what the exact-parent Luna checkpoint matching requires.
+    let activeTurnId: string | undefined;
+    for (let index = 0; index < input.length; index += 1) {
+      const item = input[index];
+      if (!isRecord(item) || item.type !== "message") continue;
+      if (item.role === "user") {
+        activeTurnId = gatewayUserTurnId(threadId, rawItemText(item));
+        tagUserItem(item, activeTurnId);
+      } else if (item.role === "assistant" && activeTurnId) {
+        tagAssistantItem(item, activeTurnId);
       }
-      turnId = activeTurnId ?? `gwturn${crypto.randomUUID().replaceAll("-", "")}`;
-    } else {
-      turnId = `gwturn${crypto.randomUUID().replaceAll("-", "")}`;
-      if (lastUserIndex >= 0) tagUserItem(input[lastUserIndex] as Record<string, unknown>, turnId);
     }
+    turnId = activeTurnId ?? `gwturn${crypto.randomUUID().replaceAll("-", "")}`;
     if (lastUserIndex < 0) {
       // No user message at all: the adapter requires a canonical user instruction. The final
       // synthetic instruction keeps the turn well-formed without inventing conversation content.
@@ -153,15 +171,15 @@ export function synthesizeGatewayTurnContext(body: Record<string, unknown>): Gat
       request_kind: "turn",
       sandbox: "none",
     }),
-    // Marks this request as gateway-authored. A stable thread opts sequential requests into
-    // retained-conversation reuse (same browser chat, incremental prompts) instead of one fresh
-    // Temporary Chat per request.
-    "x-chatgpt-web-gateway": { ...(isRecord(existingMetadata["x-chatgpt-web-gateway"]) ? existingMetadata["x-chatgpt-web-gateway"] : {}), stable_thread: stableKey !== undefined },
+    // Marks this request as gateway-authored with a stable thread, which opts sequential requests
+    // into retained-conversation reuse (same browser chat, incremental prompts) instead of one
+    // fresh Temporary Chat per request.
+    "x-chatgpt-web-gateway": { ...(isRecord(existingMetadata["x-chatgpt-web-gateway"]) ? existingMetadata["x-chatgpt-web-gateway"] : {}), stable_thread: true },
   };
-  return { threadId, turnId, stableThread: stableKey !== undefined };
+  return { threadId, turnId, stableThread: true };
 }
 
-/** True when this request was gateway-synthesized with a client-supplied stable thread key. */
+/** True when this request was gateway-synthesized with a stable thread (always true for gateway turns). */
 export function isGatewayStableThreadRequest(value: unknown): boolean {
   const body = isRecord(value) ? value : undefined;
   const metadata = isRecord(body?.client_metadata) ? body.client_metadata : undefined;

@@ -21,7 +21,17 @@ describe("gateway stable-thread marker", () => {
 
     const ephemeral: Record<string, unknown> = { model: "chatgpt-web/high", input: "hello" };
     synthesizeGatewayTurnContext(ephemeral);
-    expect(isGatewayStableThreadRequest(ephemeral)).toBeFalse();
+    // Auto-derived threads are stable too, so every gateway turn opts into retained-chat reuse.
+    expect(isGatewayStableThreadRequest(ephemeral)).toBeTrue();
+    const stableMetadata = JSON.parse(
+      (stable.client_metadata as Record<string, unknown>)["x-codex-turn-metadata"] as string,
+    ) as { thread_id: string };
+    const ephemeralMetadata = JSON.parse(
+      (ephemeral.client_metadata as Record<string, unknown>)["x-codex-turn-metadata"] as string,
+    ) as { thread_id: string };
+    // The explicit prompt_cache_key wins over the auto-derived key.
+    expect(stableMetadata.thread_id).toBe("harness-session-1");
+    expect(ephemeralMetadata.thread_id).toMatch(/^auto[0-9a-f]{24}$/);
   });
 
   test("native Codex requests are never marked as gateway turns", () => {

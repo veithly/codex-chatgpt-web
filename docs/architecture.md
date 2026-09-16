@@ -45,11 +45,15 @@ block, and the gateway event filter converts it into standard tool_call events b
 Tool results return in the next request as ordinary tool_result history records. An unterminated or
 unparseable block degrades to visible prose; nothing the model writes is silently dropped.
 
-Gateway turns reuse one stable thread (and Luna's rolling checkpoint) when the client supplies a
-`prompt_cache_key`; without one every request is an independent thread with no cross-request state.
-A stable gateway thread additionally opts into retained-conversation reuse: on the launcher browser
+Every gateway turn carries a stable thread key: the client's `prompt_cache_key` when present,
+otherwise a key derived from the conversation's stable head (model + instructions + first user
+message), so harnesses that never send cache keys still map their sequential requests onto one
+thread. A stable gateway thread opts into retained-conversation reuse: on the launcher browser
 host, sequential requests continue the SAME chat through incremental prompts (`prepareResume`) —
-the launcher falls back to a fresh chat whenever the retained surface has expired. Gateway turns
+the launcher falls back to a fresh chat whenever the retained surface has expired. A finished chat
+page stays open after its conversation completes and is closed only once it has been idle for
+`retainedConversationIdleMinutes` (core configuration, default 10 minutes) with no same-session
+follow-up. Gateway turns
 always fail closed on Zero Risk (manual interaction) configurations because that mode has no
 automatic routes, and they never weaken the native Codex path: any request that carries Codex
 turn metadata is validated exactly as before.

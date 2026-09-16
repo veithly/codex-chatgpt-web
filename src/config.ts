@@ -83,6 +83,8 @@ export interface AppConfig {
   headed: boolean;
   /** Run browser turns on the isolated Temporary Chat surface (default true). */
   temporaryChat: boolean;
+  /** Keep a finished chat page open this many minutes waiting for a same-session follow-up. */
+  retainedConversationIdleMinutes: number;
   solAvailable: boolean;
   extraHighAvailable?: boolean;
   proAvailable: boolean;
@@ -214,6 +216,7 @@ export function defaultConfig(mode: RuntimeMode = "browser-only"): AppConfig {
     brokerSocketPath: defaultBrokerEndpoint(home),
     headed: true,
     temporaryChat: true,
+    retainedConversationIdleMinutes: 10,
     solAvailable: true,
     extraHighAvailable: false,
     proAvailable: false,
@@ -405,6 +408,12 @@ function parseConfig(value: unknown, path: string): AppConfig {
   if (parsed.temporaryChat !== undefined && typeof parsed.temporaryChat !== "boolean") {
     throw new Error(`Invalid temporaryChat in ${path}`);
   }
+  if (parsed.retainedConversationIdleMinutes !== undefined
+    && (!Number.isFinite(parsed.retainedConversationIdleMinutes)
+      || parsed.retainedConversationIdleMinutes < 1
+      || parsed.retainedConversationIdleMinutes > 1_440)) {
+    throw new Error(`retainedConversationIdleMinutes must be between 1 and 1440 minutes in ${path}`);
+  }
   if (typeof parsed.autoApproveToolCalls !== "boolean") {
     throw new Error(`Invalid autoApproveToolCalls in ${path}`);
   }
@@ -543,6 +552,7 @@ function parseConfig(value: unknown, path: string): AppConfig {
     experimentalSkillAttachments,
     zeroRiskProEnabled,
     temporaryChat: parsed.temporaryChat !== false,
+    retainedConversationIdleMinutes: parsed.retainedConversationIdleMinutes ?? 10,
   } as AppConfig;
 }
 

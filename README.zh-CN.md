@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.8/codex-web-gpt-5.0.8-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">所有版本</a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">所有版本</a>
 </p>
 
 <p align="center">
@@ -154,10 +154,12 @@ codex-chatgpt-web harness list               # show detection + install state
 MCP 服务器提供 `chatgpt_web_chat`、`chatgpt_web_models`、`chatgpt_web_reset` 三个工具；按
 session 维护历史并为每个会话传递稳定缓存键，因此连续调用会继续同一个浏览器对话而不是新开一个。
 
-会话行为：提供稳定的 `prompt_cache_key`（或 MCP `session_id`）可在多轮之间复用保留的浏览器
-会话 —— 追加消息会继续同一个 ChatGPT 对话，Luna 滚动检查点也会持续压缩。不提供则每个请求
-新开一个会话。在 `~/.codex-chatgpt-web/config.json` 中设置 `"temporaryChat": false` 可改用
-正常（会出现在历史里的）ChatGPT 会话发起消息；默认仍为临时会话。
+会话行为：同一会话的连续请求会自动在**同一个浏览器会话页面**中发起 —— 无需任何配置。网关会从
+会话头部（模型 + 指令 + 首条用户消息）派生稳定会话标识；显式提供 `prompt_cache_key`（或 MCP
+`session_id`）可覆盖派生结果，用于区分头部相同的两条会话。对话完成后，页面会继续保留等待同
+会话的新对话，静默 `retainedConversationIdleMinutes`（默认 10）分钟后才关闭。在
+`~/.codex-chatgpt-web/config.json` 中设置 `"temporaryChat": false` 可改用正常（会出现在历史里
+的）ChatGPT 会话发起消息；默认仍为临时会话。
 
 </details>
 
