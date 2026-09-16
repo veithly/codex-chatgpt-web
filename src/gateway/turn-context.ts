@@ -153,6 +153,18 @@ export function synthesizeGatewayTurnContext(body: Record<string, unknown>): Gat
       request_kind: "turn",
       sandbox: "none",
     }),
+    // Marks this request as gateway-authored. A stable thread opts sequential requests into
+    // retained-conversation reuse (same browser chat, incremental prompts) instead of one fresh
+    // Temporary Chat per request.
+    "x-chatgpt-web-gateway": { ...(isRecord(existingMetadata["x-chatgpt-web-gateway"]) ? existingMetadata["x-chatgpt-web-gateway"] : {}), stable_thread: stableKey !== undefined },
   };
   return { threadId, turnId, stableThread: stableKey !== undefined };
+}
+
+/** True when this request was gateway-synthesized with a client-supplied stable thread key. */
+export function isGatewayStableThreadRequest(value: unknown): boolean {
+  const body = isRecord(value) ? value : undefined;
+  const metadata = isRecord(body?.client_metadata) ? body.client_metadata : undefined;
+  const marker = metadata?.["x-chatgpt-web-gateway"];
+  return isRecord(marker) && marker.stable_thread === true;
 }

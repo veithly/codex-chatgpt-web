@@ -47,7 +47,7 @@ import {
 import { estimateCompiledChatGptWebInputTokens } from "./input-tokens";
 import {
   assertAuthenticatedChatGptPage,
-  assertTemporaryChatPage,
+  assertChatGptTurnSurfacePage,
   CHATGPT_ASSISTANT_TURN_SELECTOR,
   CHATGPT_COMPLETION_ACTION_SELECTOR,
   CHATGPT_COMPOSER_SELECTOR,
@@ -55,8 +55,8 @@ import {
   CHATGPT_EFFORT_ITEM_SELECTOR,
   CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR,
   CHATGPT_STOP_BUTTON_SELECTOR,
-  CHATGPT_TEMPORARY_CHAT_URL,
   CHATGPT_USER_TURN_SELECTOR,
+  chatGptTurnSurfaceUrl,
   activateChatGptEffortMenu,
   detectChatGptAccountCapabilities,
   parseChatGptEffortSliderState,
@@ -113,18 +113,22 @@ export async function closeChatGptBrowserWorkers(): Promise<void> {
   }
 }
 
-export const CHATGPT_RESPONSE_DOM_GRACE_MS = 60_000;
+// Post-submit DOM-health budgets deliberately far exceed a silent ChatGPT "thinking" phase: a
+// running generation must never lose its tab to an inactivity verdict (long reasoning can leave
+// the response DOM quiet for minutes), so these are kill-switches for genuinely dead documents,
+// not deadlines for slow ones.
+export const CHATGPT_RESPONSE_DOM_GRACE_MS = 300_000;
 /**
  * How long a staged Bigger Context part may take to produce its assistant turn. A staged part is two
  * orders of magnitude larger than an ordinary prompt and ChatGPT reads all of it before answering.
  * No MCP activity exists while that inert part is being ingested, so the response grace matches
  * the bounded staged-send budget.
  */
-export const CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS = 180_000;
-export const CHATGPT_EMPTY_RESPONSE_GRACE_MS = 10_000;
-export const CHATGPT_COMPLETION_ACTION_GRACE_MS = 60_000;
+export const CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS = 600_000;
+export const CHATGPT_EMPTY_RESPONSE_GRACE_MS = 60_000;
+export const CHATGPT_COMPLETION_ACTION_GRACE_MS = 300_000;
 export const CHATGPT_COMPLETION_SETTLE_MS = 2_000;
-export const CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS = 60_000;
+export const CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS = 300_000;
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
 const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
@@ -134,8 +138,8 @@ const CHATGPT_SMOKE_EXPECTED = "CODEX WEB GPT READY";
  * ChatGPT applies composer state asynchronously, and a fast host can reach the next step before the
  * editor has taken the previous one. This is headroom for that, not a readiness check.
  */
-export const CHATGPT_UI_SETTLE_MS = 250;
-export const CHATGPT_SEND_ENABLE_GRACE_MS = 5_000;
+export const CHATGPT_UI_SETTLE_MS = 100;
+export const CHATGPT_SEND_ENABLE_GRACE_MS = 15_000;
 
 const CHATGPT_DOM_REVISION_ATTRIBUTES = [
   "aria-hidden",
@@ -1037,10 +1041,14 @@ export const browserStageTimeouts = {
   effortSelection: 120_000,
   promptAttachment: 60_000,
   fileAttachment: 120_000,
-  send: 20_000,
+  // The send budget covers ChatGPT accepting the submission after Enter (new turn identity in the
+  // DOM), not just the keypress. Slow acceptance must abort the turn, but 20s proved too tight for
+  // busy accounts; 60s still fails closed on a genuinely stuck composer.
+  send: 60_000,
   // A Bigger Context stage posts a much larger payload onto a conversation that already holds the
-  // earlier parts. This budget covers ChatGPT accepting the submission, not just the click.
-  multipartStageSend: 180_000,
+  // earlier parts. This budget covers ChatGPT accepting the submission, not just the click, and
+  // shares the staged acknowledgement window: both bound one slow staged exchange.
+  multipartStageSend: CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
   // Staging asks for one transaction-bound acknowledgement, not an open-ended model answer.
   multipartStageAcknowledgement: CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
 } as const;
@@ -1265,6 +1273,8 @@ export interface ResolvedBrowserConfig {
   chromeExecutablePath: string;
   turnTimeoutMs?: number;
   headed: boolean;
+  /** False selects the persistent (history-visible) chat surface instead of Temporary Chat. */
+  temporaryChat?: boolean;
   autoApproveToolCalls: boolean;
 }
 
@@ -2011,6 +2021,7 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
     chromeExecutablePath: resolve(expandUserPath(configured.chromeExecutablePath?.trim() || defaultChromeExecutable())),
     ...(turnTimeoutMs !== undefined ? { turnTimeoutMs } : {}),
     headed: configured.headed !== false,
+    temporaryChat: configured.temporaryChat !== false,
     autoApproveToolCalls: configured.autoApproveToolCalls === true,
   };
 }
@@ -2531,17 +2542,18 @@ export class ChatGptBrowserWorker {
     );
   }
 
-  /** Put every browser operation on one fully hydrated Temporary Chat document. */
+  /** Put every browser operation on one fully hydrated chat document (Temporary Chat by default). */
   private async prepareTemporaryChatSurface(
     page: Page,
     captureDiagnostic?: (checkpoint: string) => Promise<void>,
   ): Promise<Locator> {
+    const surfaceUrl = chatGptTurnSurfaceUrl(this.config.temporaryChat !== false);
     // Launcher verification refreshes its owned page before attaching Playwright so a newly added
     // connector is present in the catalog. Navigating again here destroys that freshly hydrated
     // document and made the first verification race a second SPA bootstrap. A leased turn starts on
     // about:blank and therefore still performs exactly one navigation through this same method.
-    if (page.url() !== CHATGPT_TEMPORARY_CHAT_URL) {
-      await page.goto(CHATGPT_TEMPORARY_CHAT_URL, {
+    if (page.url() !== surfaceUrl) {
+      await page.goto(surfaceUrl, {
         waitUntil: "domcontentloaded",
         timeout: 60_000,
       });
@@ -2551,7 +2563,7 @@ export class ChatGptBrowserWorker {
     try {
       composer = await this.activeComposer(page);
     } catch {
-      throw new Error("ChatGPT web login is expired or the Temporary Chat surface is unavailable");
+      throw new Error("ChatGPT web login is expired or the chat surface is unavailable");
     }
     if (await dismissChatGptTemporaryChatOnboarding(page)) {
       await captureDiagnostic?.("temporary-chat-onboarding-dismissed");
@@ -2559,7 +2571,7 @@ export class ChatGptBrowserWorker {
     await captureDiagnostic?.("composer-ready");
     await throwIfChatGptSessionFailureAlert(page);
     await assertAuthenticatedChatGptPage(page);
-    await assertTemporaryChatPage(page);
+    await assertChatGptTurnSurfacePage(page, { temporaryChat: this.config.temporaryChat !== false });
     await captureDiagnostic?.("session-verified");
     return composer;
   }

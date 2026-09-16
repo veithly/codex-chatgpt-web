@@ -23,6 +23,7 @@ import { parseDataUrl } from "../image";
 import { ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
 import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity, priorChatGptAbortedTurnIds } from "./environment";
+import { isGatewayStableThreadRequest } from "../../gateway/turn-context";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
 import { chatGptReadOnlyContextWarning, compileChatGptWebPrompt } from "./prompt";
 import { createChatGptStructuredOutputValidator } from "./output-validation";
@@ -420,9 +421,15 @@ export function createChatGptWebAdapter(
     const checkpointInput = captureLunaCheckpoint
       ? lunaCheckpointStore.apply(parsed)
       : { parsed, applied: false };
+    // Stable gateway threads (client-supplied prompt_cache_key) reuse the retained browser chat for
+    // sequential requests, same as full-harness turns; every other browser-only turn keeps opening
+    // a fresh Temporary Chat.
+    const gatewayStableThread = !mode.localTools
+      && !parsed._compactionRequest
+      && isGatewayStableThreadRequest(parsed._rawBody);
     const conversationKey = !parsed._compactionRequest
       && parsed.modelId !== CHATGPT_WEB_LUNA_MODEL_ID
-      && mode.localTools
+      && (mode.localTools || gatewayStableThread)
       && retainedLauncherDescriptor
       ? chatGptConversationKey(checkpointInput.parsed, executionNamespace)
       : undefined;
@@ -678,20 +685,23 @@ export function createChatGptWebAdapter(
       };
     }
     if (!mode.localTools) {
+      const prepareFresh = async (input: CodexParsedRequest) => ({
+        ...compileChatGptWebPrompt(
+          input,
+          turnCapabilities,
+          undefined,
+          compileOptionsFor(input),
+        ),
+        release: () => {},
+      });
       const browserTurn = cancellableBrowserTurn(finalizeCheckpoint(worker.run({
         traceId,
         modelId: parsed.modelId,
         reasoning: parsed.options.reasoning,
         capabilities: turnCapabilities,
-        prepare: async () => ({
-          ...compileChatGptWebPrompt(
-            checkpointInput.parsed,
-            turnCapabilities,
-            undefined,
-            compileOptionsFor(checkpointInput.parsed),
-          ),
-          release: () => {},
-        }),
+        prepare: () => prepareFresh(checkpointInput.parsed),
+        ...(resumeInput ? { prepareResume: () => prepareFresh(resumeInput) } : {}),
+        ...(retainConversation ? { retainConversation: true, conversationKey } : {}),
         abortSignal: browserAbort.signal,
         ...(parsed._compactionRequest ? { compaction: true } : {}),
         ...submissionLifecycle,
@@ -713,6 +723,7 @@ export function createChatGptWebAdapter(
         usageInput: checkpointInput.parsed,
         submission,
         cancel: browserTurn.cancel,
+        ...(releaseRetainedConversation ? { releaseRetainedConversation } : {}),
       };
     }
     if (!environment) throw new Error("Tool-capable ChatGPT web mode requires a trusted Codex environment");

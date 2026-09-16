@@ -150,7 +150,10 @@ export async function runDoctor(): Promise<DoctorReport> {
 
   const codex = inspectCodexIntegration();
   if (!codex.installed) {
-    checks.push({ id: "codex", status: "error", message: "Codex model route is not installed" });
+    // A machine without any Codex integration is a valid gateway-only installation: every other
+    // harness (OpenAI/Anthropic/MCP clients) is served without Codex, so this is a warning, not
+    // a failed readiness check.
+    checks.push({ id: "codex", status: "warning", message: "Codex model route is not installed (gateway-only mode serves other harnesses)" });
   } else if (codex.errors.length > 0) {
     checks.push({ id: "codex", status: "error", message: "Codex integration is inconsistent", detail: codex.errors.join("; ") });
   } else {

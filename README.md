@@ -146,6 +146,23 @@ claude
 Example — OpenAI SDK / aider style base URL: `http://127.0.0.1:17841/v1` with any API key and model
 `chatgpt-web/high` (or `gpt-5.6`, `claude-sonnet-4-5`, …).
 
+Install the models as an MCP server into local harnesses with one command:
+
+```bash
+codex-chatgpt-web harness install all        # or: claude-code | zcode | pi | omp
+codex-chatgpt-web harness list               # show detection + install state
+```
+
+The MCP server (`chatgpt_web_chat`, `chatgpt_web_models`, `chatgpt_web_reset`) keeps per-session
+history and passes a stable cache key per session, so sequential calls continue the same browser
+chat instead of opening a fresh one.
+
+Session behavior: passing a stable `prompt_cache_key` (or MCP `session_id`) reuses the retained
+browser conversation across turns — follow-up messages continue the SAME ChatGPT chat, and Luna's
+rolling checkpoint keeps compressing it. Without a stable key every request opens a fresh
+conversation. Set `"temporaryChat": false` in `~/.codex-chatgpt-web/config.json` to run turns
+through normal (history-visible) chats instead of Temporary Chats; the default stays Temporary.
+
 </details>
 
 <details>

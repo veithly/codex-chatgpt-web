@@ -295,6 +295,11 @@ export interface CodexProviderConfig {
     stallTimeoutSec?: number;
     /** Keep the single controlled browser visible. */
     headed?: boolean;
+    /**
+     * Run turns on the isolated Temporary Chat surface (default). When false, turns open a
+     * persistent (history-visible) ChatGPT chat instead — the account's normal chat product.
+     */
+    temporaryChat?: boolean;
     /** Attach the turn-bound Codex MCP capability for every connector-capable Web model. */
     localToolsEnabled?: boolean;
     /** Account capability proven by the authenticated browser probe. */

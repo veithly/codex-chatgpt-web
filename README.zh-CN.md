@@ -144,6 +144,21 @@ claude
 OpenAI SDK / aider 示例：base URL `http://127.0.0.1:17841/v1`，API Key 任意，模型
 `chatgpt-web/high`（或 `gpt-5.6`、`claude-sonnet-4-5` 等）。
 
+一条命令把模型注册为本地 harness 的 MCP 服务器：
+
+```bash
+codex-chatgpt-web harness install all        # 或：claude-code | zcode | pi | omp
+codex-chatgpt-web harness list               # 查看检测与安装状态
+```
+
+MCP 服务器提供 `chatgpt_web_chat`、`chatgpt_web_models`、`chatgpt_web_reset` 三个工具；按
+session 维护历史并为每个会话传递稳定缓存键，因此连续调用会继续同一个浏览器对话而不是新开一个。
+
+会话行为：提供稳定的 `prompt_cache_key`（或 MCP `session_id`）可在多轮之间复用保留的浏览器
+会话 —— 追加消息会继续同一个 ChatGPT 对话，Luna 滚动检查点也会持续压缩。不提供则每个请求
+新开一个会话。在 `~/.codex-chatgpt-web/config.json` 中设置 `"temporaryChat": false` 可改用
+正常（会出现在历史里的）ChatGPT 会话发起消息；默认仍为临时会话。
+
 </details>
 
 <details>

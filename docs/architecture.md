@@ -47,9 +47,19 @@ unparseable block degrades to visible prose; nothing the model writes is silentl
 
 Gateway turns reuse one stable thread (and Luna's rolling checkpoint) when the client supplies a
 `prompt_cache_key`; without one every request is an independent thread with no cross-request state.
-Gateway turns always fail closed on Zero Risk (manual interaction) configurations because that mode
-has no automatic routes, and they never weaken the native Codex path: any request that carries Codex
+A stable gateway thread additionally opts into retained-conversation reuse: on the launcher browser
+host, sequential requests continue the SAME chat through incremental prompts (`prepareResume`) —
+the launcher falls back to a fresh chat whenever the retained surface has expired. Gateway turns
+always fail closed on Zero Risk (manual interaction) configurations because that mode has no
+automatic routes, and they never weaken the native Codex path: any request that carries Codex
 turn metadata is validated exactly as before.
+
+`"temporaryChat": false` in the core configuration redirects every automatic turn (daemon and
+launcher surface verification alike) from the isolated Temporary Chat URL to the account's normal
+chat product; Temporary Chat remains the default and the login verification surface is unchanged.
+Post-submit DOM-health budgets (missing response, empty response, completion action, tool
+confirmation) are deliberately set far above a silent ChatGPT reasoning phase so a running
+generation can never lose its tab to an inactivity verdict.
 
 ## Modes
 

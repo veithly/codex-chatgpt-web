@@ -56,6 +56,8 @@ export interface SetupOptions {
   experimentalSkillAttachments?: boolean;
   zeroRiskProEnabled?: boolean;
   replaceCodexRoute?: boolean;
+  /** Skip writing the Codex integration entirely (gateway-only harness setups without Codex). */
+  skipCodexIntegration?: boolean;
   restartService?: boolean;
   acknowledgedUnofficial?: boolean;
   tunnelId?: string;
@@ -69,7 +71,7 @@ export interface SetupResult {
   loginCreated: boolean;
   serviceLoaded: boolean;
   tunnelReady: boolean | null;
-  codexRestartRequired: true;
+  codexRestartRequired: boolean;
   connectorSetupRequired: boolean;
 }
 
@@ -480,9 +482,11 @@ export function preflightSetup(options: SetupOptions): void {
 
 export async function setup(options: SetupOptions): Promise<SetupResult> {
   const { existing, config, launcherOwned } = prepareSetup(options);
-  preflightCodexIntegration(config, {
-    replaceExistingRoute: options.replaceCodexRoute,
-  });
+  if (options.skipCodexIntegration !== true) {
+    preflightCodexIntegration(config, {
+      replaceExistingRoute: options.replaceCodexRoute,
+    });
+  }
   const refreshTunnelWorker = tunnelWorkerRuntimeChanged(existing, config);
   if (existing && options.restartService) config.controlToken = randomBytes(32).toString("base64url");
   const beforeService = getServiceStatus();
@@ -623,9 +627,14 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     launcherOwned && existing && existing.browserHost !== "launcher",
   );
   if (!migratingTerminalRuntime) removeLegacyRuntimeArtifacts(config);
-  installCodexIntegration(config, {
-    replaceExistingRoute: options.replaceCodexRoute,
-  });
+  if (options.skipCodexIntegration === true) {
+    // Gateway-only setup: the daemon and browser harness serve any OpenAI/Anthropic/MCP client;
+    // Codex's own config stays untouched and no restart request is raised.
+  } else {
+    installCodexIntegration(config, {
+      replaceExistingRoute: options.replaceCodexRoute,
+    });
+  }
 
   return {
     mode: config.mode,
@@ -633,7 +642,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     loginCreated,
     serviceLoaded: launcherOwned ? false : getServiceStatus().loaded,
     tunnelReady,
-    codexRestartRequired: true,
+    codexRestartRequired: options.skipCodexIntegration !== true,
     connectorSetupRequired: config.mode === "full",
   };
 }

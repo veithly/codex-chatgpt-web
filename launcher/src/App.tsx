@@ -1131,6 +1131,10 @@ function SetupSurface({
     await api!.setupCore();
     updateState((await api!.snapshot()).state);
   });
+  const installGatewayOnly = () => run(async () => {
+    await api!.setupCore({ gatewayOnly: true });
+    updateState((await api!.snapshot()).state);
+  });
   const setZeroRiskPro = (enabled: boolean) => run(async () => {
     updateState(await api!.setZeroRiskPro(enabled));
   });
@@ -1178,6 +1182,9 @@ function SetupSurface({
           onAction={install}
           repeatable
           title={devProfile ? copy.devStepInstall : copy.stepInstall}
+          secondaryAction={devProfile || manualInteraction ? undefined : copy.gatewayOnly}
+          onSecondaryAction={installGatewayOnly}
+          secondaryDisabled={busy || (!snapshot.smokePassed && snapshot.state.coreSetupComplete !== true)}
           titleAction={manualInteraction ? (
             <ZeroRiskModelMenu
               busy={busy || snapshot.state.coreSetupComplete !== true}

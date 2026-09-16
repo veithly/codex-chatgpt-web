@@ -81,6 +81,8 @@ export interface AppConfig {
   storageStatePath: string;
   brokerSocketPath: string;
   headed: boolean;
+  /** Run browser turns on the isolated Temporary Chat surface (default true). */
+  temporaryChat: boolean;
   solAvailable: boolean;
   extraHighAvailable?: boolean;
   proAvailable: boolean;
@@ -211,6 +213,7 @@ export function defaultConfig(mode: RuntimeMode = "browser-only"): AppConfig {
     storageStatePath: join(home, "browser", "storage-state.json"),
     brokerSocketPath: defaultBrokerEndpoint(home),
     headed: true,
+    temporaryChat: true,
     solAvailable: true,
     extraHighAvailable: false,
     proAvailable: false,
@@ -399,6 +402,9 @@ function parseConfig(value: unknown, path: string): AppConfig {
     throw new Error(`Invalid contextWindow in ${path}`);
   }
   if (typeof parsed.headed !== "boolean") throw new Error(`Invalid headed in ${path}`);
+  if (parsed.temporaryChat !== undefined && typeof parsed.temporaryChat !== "boolean") {
+    throw new Error(`Invalid temporaryChat in ${path}`);
+  }
   if (typeof parsed.autoApproveToolCalls !== "boolean") {
     throw new Error(`Invalid autoApproveToolCalls in ${path}`);
   }
@@ -536,6 +542,7 @@ function parseConfig(value: unknown, path: string): AppConfig {
     experimentalBiggerContext,
     experimentalSkillAttachments,
     zeroRiskProEnabled,
+    temporaryChat: parsed.temporaryChat !== false,
   } as AppConfig;
 }
 
@@ -585,6 +592,7 @@ export function providerConfig(config: AppConfig): CodexProviderConfig {
       threadEnvironmentStatePath: join(getConfigDir(), "runtime", "thread-environments.json"),
       lunaCheckpointStatePath: join(getConfigDir(), "runtime", "luna-checkpoints.json"),
       headed: config.headed,
+      temporaryChat: config.temporaryChat !== false,
       localToolsEnabled: config.mode === "full",
       solAvailable: manual ? false : config.solAvailable,
       extraHighAvailable: !manual && config.extraHighAvailable === true,

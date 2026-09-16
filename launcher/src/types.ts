@@ -148,7 +148,7 @@ export interface LauncherApi {
   doctor(): Promise<DoctorReport>;
   cancelTurns(): Promise<{ stdout: string }>;
   uninstallIntegration(): Promise<{ cancelled: true } | { cancelled: false; state: LauncherState }>;
-  setupCore(): Promise<{ ok: boolean; stdout: string; restartRequired: boolean }>;
+  setupCore(input?: { gatewayOnly?: boolean }): Promise<{ ok: boolean; stdout: string; restartRequired: boolean; gatewayOnly?: boolean }>;
   setupMcp(input: {
     tunnelId?: string;
     runtimeKey?: string;

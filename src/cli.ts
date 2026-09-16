@@ -22,6 +22,16 @@ import {
 } from "./codex-integration";
 import { formatDoctorReport, runDoctor } from "./doctor";
 import { runChatGptMcpMain } from "./adapters/chatgpt-web/mcp-main";
+import { runHarnessMcpServer } from "./gateway/harness-mcp";
+import {
+  HARNESS_TARGETS,
+  harnessServeEntry,
+  installHarness,
+  listHarnessTargets,
+  removeHarness,
+  type HarnessInstallReport,
+  type HarnessTarget,
+} from "./gateway/harness-install";
 import { runCommand } from "./process";
 import { startServer } from "./server";
 import { assertServiceIdle, cancelActiveTurns, getServiceStatus, installService, interruptActiveTurn, restartService, startService, stopService, uninstallService } from "./service";
@@ -316,6 +326,10 @@ async function setupCommand(args: string[]): Promise<void> {
   }
   if (zeroRiskPro || zeroRiskDefault) options.zeroRiskProEnabled = zeroRiskPro;
   options.replaceCodexRoute = takeFlag(args, "--replace-codex-route");
+  options.skipCodexIntegration = takeFlag(args, "--skip-codex-integration");
+  if (options.skipCodexIntegration && options.replaceCodexRoute) {
+    throw new Error("Choose at most one Codex route behavior: --replace-codex-route or --skip-codex-integration");
+  }
   options.restartService = takeFlag(args, "--restart-service");
   assertNoArgs(args);
 
@@ -360,7 +374,11 @@ async function setupCommand(args: string[]): Promise<void> {
     stdout.write("One account-level step remains: attach the tunnel to the ChatGPT connector named in config.\n");
     stdout.write("Open: https://chatgpt.com/#settings/Plugins\n");
   }
-  stdout.write("Restart the Codex app once so its native model catalog refreshes through the installed route.\n");
+  if (result.codexRestartRequired) {
+    stdout.write("Restart the Codex app once so its native model catalog refreshes through the installed route.\n");
+  } else {
+    stdout.write("Gateway-only setup: point any harness at this daemon (OpenAI/Anthropic-compatible endpoints); Codex was left untouched.\n");
+  }
 }
 
 async function doctorCommand(args: string[]): Promise<void> {
@@ -462,6 +480,48 @@ async function interruptHookCommand(args: string[]): Promise<void> {
     throw new Error("Codex Interrupt hook payload has no valid session_id or turn_id");
   }
   await interruptActiveTurn(loadConfig(), { threadId, turnId });
+}
+
+async function harnessCommand(args: string[]): Promise<void> {
+  const action = args.shift() ?? "list";
+  const parseTargets = (): HarnessTarget[] => {
+    if (args[0] === "all") return [...HARNESS_TARGETS];
+    const requested = args.splice(0).map(part => {
+      const target = HARNESS_TARGETS.find(candidate => candidate === part);
+      if (!target) throw new Error(`Unknown harness target: ${part}. Known targets: ${HARNESS_TARGETS.join(", ")}, all`);
+      return target;
+    });
+    if (requested.length === 0) throw new Error(`Specify at least one harness target: ${HARNESS_TARGETS.join(", ")}, all`);
+    return requested;
+  };
+  const printReports = (reports: HarnessInstallReport[]): void => {
+    for (const report of reports) {
+      stdout.write(`${report.target}: ${report.status} (${report.configPath})\n`);
+    }
+  };
+  if (action === "list") {
+    const entry = harnessServeEntry();
+    stdout.write(`MCP server entry: ${entry.command} ${entry.args.join(" ")}\n`);
+    for (const target of listHarnessTargets()) {
+      stdout.write(`${target.id.padEnd(12)} ${target.detected ? (target.installed ? "installed" : "detected") : "not detected"}  ${target.configFile}\n`);
+    }
+    return;
+  }
+  if (action === "install") {
+    printReports(parseTargets().map(target => installHarness(target)));
+    stdout.write("Restart the harness so it picks up the new MCP server. The daemon must stay running (start the launcher).\n");
+    return;
+  }
+  if (action === "remove") {
+    printReports(parseTargets().map(target => removeHarness(target)));
+    return;
+  }
+  if (action === "serve") {
+    assertNoArgs(args);
+    await runHarnessMcpServer();
+    return;
+  }
+  throw new Error(`Unknown harness action: ${action}. Use list, install, remove, or serve`);
 }
 
 async function tunnelCommand(args: string[]): Promise<void> {
@@ -589,6 +649,7 @@ async function main(): Promise<void> {
     await new Promise<void>(() => {});
   } else if (command === "dev") await runDevCommand(args);
   else if (command === "mcp") await runChatGptMcpMain(args);
+  else if (command === "harness") await harnessCommand(args);
   else if (command === "service") await serviceCommand(args);
   else if (command === "hook") {
     const action = args.shift();

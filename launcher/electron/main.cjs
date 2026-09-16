@@ -734,7 +734,8 @@ function registerIpc({ logger, stateStore }) {
     stopCatalogVerificationMonitor();
     return { cancelled: false, state };
   });
-  handle("launcher:setup-core", async () => {
+  handle("launcher:setup-core", async (_event, input) => {
+  const gatewayOnly = input?.gatewayOnly === true;
     const setupState = stateStore.read();
     if (setupState.browserInteractionMode === "automatic") {
       const browser = await browserHost.probeAuthentication();
@@ -756,11 +757,13 @@ function registerIpc({ logger, stateStore }) {
           : "Run the browser smoke test before installing the Codex integration",
       );
     }
-    const result = IS_DEV_PROFILE ? await runtimeHost.setupDevCore() : await runtimeHost.setupCore();
+    const result = IS_DEV_PROFILE
+      ? await runtimeHost.setupDevCore()
+      : await runtimeHost.setupCore({ skipCodexIntegration: gatewayOnly });
     stateStore.update({
       coreSetupComplete: true,
-      codexCatalogVerified: IS_DEV_PROFILE ? true : false,
-      codexRestartRequired: IS_DEV_PROFILE ? false : true,
+      codexCatalogVerified: IS_DEV_PROFILE || gatewayOnly ? true : false,
+      codexRestartRequired: IS_DEV_PROFILE || gatewayOnly ? false : true,
       zeroRiskProEnabled: runtimeHost.runtimeConfigSnapshot().config?.zeroRiskProEnabled === true,
       ...(result.mode === "full" ? {
         mcpRuntimeInstalled: true,
@@ -777,8 +780,8 @@ function registerIpc({ logger, stateStore }) {
         message: error instanceof Error ? error.message : String(error),
       });
     });
-    if (!IS_DEV_PROFILE) startCatalogVerificationMonitor({ logger, stateStore });
-    return { ok: true, stdout: result.stdout, restartRequired: !IS_DEV_PROFILE };
+    if (!IS_DEV_PROFILE && !gatewayOnly) startCatalogVerificationMonitor({ logger, stateStore });
+    return { ok: true, stdout: result.stdout, restartRequired: !IS_DEV_PROFILE && !gatewayOnly, gatewayOnly };
   });
   handle("launcher:setup-mcp", async (_event, input) => {
     const currentMode = stateStore.read().browserInteractionMode;
@@ -1103,6 +1106,17 @@ async function start() {
     publishState: (state) => send("launcher:browser-state", state),
     showWindow: showMainWindow,
     getBrowserInteractionMode: () => stateStore.read().browserInteractionMode,
+    // Turns run on Temporary Chat unless the core config opts into persistent (history-visible) chats.
+    getTurnSurfaceUrl: () => {
+      try {
+        const config = runtimeHost.runtimeConfigSnapshot().config;
+        return config?.temporaryChat === false
+          ? "https://chatgpt.com/"
+          : "https://chatgpt.com/?temporary-chat=true";
+      } catch {
+        return "https://chatgpt.com/?temporary-chat=true";
+      }
+    },
   });
   await browserHost.ready();
   const updaterRuntimeRoot = runtimeRootProvider();
@@ -1251,7 +1265,7 @@ async function start() {
     const runtime = await runtimeSupervisor.startIfConfigured();
     if (runtime.status !== "ready") return runtime;
     const route = await runtimeHost.connectBridgeRoute();
-    return { ...runtime, bridgeRouteChanged: route.changed === true };
+    return { ...runtime, bridgeRouteChanged: route.changed === true, codexIntegrationInstalled: route.installed !== false };
   })().then(async (runtime) => {
     if (runtime.status === "ready") {
       const config = runtimeSupervisor.readConfig();
@@ -1275,7 +1289,9 @@ async function start() {
         const state = stateStore.update(patch);
         send("launcher:state-changed", state);
       }
-      startCatalogVerificationMonitor({ logger, stateStore });
+      if (runtime.codexIntegrationInstalled !== false) {
+        startCatalogVerificationMonitor({ logger, stateStore });
+      }
       return;
     }
     if (runtime.status === "not-configured") {

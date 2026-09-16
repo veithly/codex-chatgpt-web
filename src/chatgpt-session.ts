@@ -2,6 +2,13 @@ import type { Locator, Page } from "playwright-core";
 import type { ChatGptWebAccountCapabilities } from "./chatgpt-web-models";
 
 export const CHATGPT_TEMPORARY_CHAT_URL = "https://chatgpt.com/?temporary-chat=true";
+/** Persistent (history-visible) chat surface for accounts that opt out of Temporary Chat. */
+export const CHATGPT_PERSISTENT_CHAT_URL = "https://chatgpt.com/";
+
+/** The turn surface the browser turn must own: isolated Temporary Chat by default. */
+export function chatGptTurnSurfaceUrl(temporaryChat: boolean): string {
+  return temporaryChat ? CHATGPT_TEMPORARY_CHAT_URL : CHATGPT_PERSISTENT_CHAT_URL;
+}
 export const CHATGPT_COMPOSER_SELECTOR = [
   '[data-testid="prompt-textarea"]',
   "#prompt-textarea",
@@ -173,6 +180,19 @@ export async function assertTemporaryChatPage(page: Page): Promise<void> {
   const expected = new URL(CHATGPT_TEMPORARY_CHAT_URL);
   if (url.origin !== expected.origin || url.pathname !== expected.pathname || url.searchParams.get("temporary-chat") !== "true") {
     throw new Error(`ChatGPT left the isolated Temporary Chat surface (${page.url()})`);
+  }
+}
+
+/** Verify the page still owns the configured turn surface (Temporary Chat by default). */
+export async function assertChatGptTurnSurfacePage(page: Page, options: { temporaryChat?: boolean } = {}): Promise<void> {
+  if (options.temporaryChat !== false) {
+    await assertTemporaryChatPage(page);
+    return;
+  }
+  const url = new URL(page.url());
+  const expected = new URL(CHATGPT_PERSISTENT_CHAT_URL);
+  if (url.origin !== expected.origin || url.pathname !== expected.pathname) {
+    throw new Error(`ChatGPT left the chat surface (${page.url()})`);
   }
 }
 

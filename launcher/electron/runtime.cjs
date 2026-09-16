@@ -874,7 +874,9 @@ class RuntimeHost {
     this.lifecycleOperation = name;
     try {
       const current = await this.bridgeStatus(name);
-      if (!current.installed) throw new Error("Install the Codex integration before connecting the bridge route");
+      // A gateway-only installation (never integrated with Codex) has no route to connect; the
+      // daemon starts and serves other harnesses regardless.
+      if (!current.installed) return { installed: false, active: false, changed: false };
       if (current.active) return current;
       try {
         const connected = await this.run(name, ["route", "connect"], {
@@ -988,7 +990,7 @@ class RuntimeHost {
     }
   }
 
-  async setupCore() {
+  async setupCore(options = {}) {
     this.assertProductionProfile("Codex integration setup");
     if (this.currentOperation()) throw new Error(`Another launcher operation is active: ${this.currentOperation()}`);
     const existing = this.runtimeConfigSnapshot();
@@ -1008,13 +1010,18 @@ class RuntimeHost {
         mode: interactionMode,
         refreshCapabilities: interactionMode === "automatic",
       }),
-      "--replace-codex-route",
+      ...(options.skipCodexIntegration === true ? [] : ["--replace-codex-route"]),
+      ...(options.skipCodexIntegration === true ? ["--skip-codex-integration"] : []),
       "--acknowledge-unofficial",
       "--restart-service",
     ];
     const result = await this.runSetup("core-setup", args, {
-      message: "Installing ChatGPT Web models into Codex",
-      successMessage: "Codex integration installed",
+      message: options.skipCodexIntegration === true
+        ? "Configuring the harness gateway (Codex untouched)"
+        : "Installing ChatGPT Web models into Codex",
+      successMessage: options.skipCodexIntegration === true
+        ? "Gateway-only setup complete"
+        : "Codex integration installed",
       timeoutMs: CORE_SETUP_TIMEOUT_MS,
     });
     return { ...result, mode };
