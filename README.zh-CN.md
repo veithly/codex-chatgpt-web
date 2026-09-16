@@ -109,6 +109,44 @@ Zero Risk 不读取或操作 ChatGPT 页面。请自行选择模型和 `Codex Ze
 </details>
 
 <details>
+<summary><strong>开放网关（任意客户端，无需 API Key）</strong></summary>
+
+<a id="open-harness-gateway"></a>
+
+本地守护进程不只服务于 Codex，也能向任何 harness 暴露 ChatGPT Web 模型。所有端点仅绑定
+127.0.0.1；客户端可使用任意占位 API Key，无需 OpenAI 或 Anthropic 账号 —— 唯一的登录仍然是
+launcher 内嵌浏览器里的 ChatGPT Web 会话。
+
+| 接口 | 端点 | 说明 |
+| --- | --- | --- |
+| OpenAI Responses | `POST /v1/responses` | 标准请求体即可；Codex turn 元数据不再是必需项 |
+| OpenAI Chat Completions | `POST /v1/chat/completions` | 流式输出、`reasoning_content`、函数工具、图片 |
+| Anthropic Messages | `POST /v1/messages`（含 `/v1/messages/count_tokens`） | Claude Code：将 `ANTHROPIC_BASE_URL` 指向 `http://127.0.0.1:17841`，`ANTHROPIC_AUTH_TOKEN` 任意 |
+| 模型目录 | `GET /v1/models` | 无认证时返回 OpenAI 形状目录；认证调用保持原生 Codex 目录不变 |
+
+任意模型名都会被接受：`chatgpt-web/<slug>` 原样生效；`gpt-*`、`claude-*` 或其他任何名字会结合
+`reasoning_effort` 与名称特征映射到当前账号可用的路由（haiku→Instant、sonnet→High、opus→Pro
+档）。为会话提供稳定的 `prompt_cache_key` 可复用同一浏览器线程，并保留 Luna 滚动检查点压缩。
+
+工具调用（aider、Claude Code、OpenAI SDK 智能体）通过提示词层工具协议实现：模型以哨兵块输出
+工具调用，网关将其转换为标准 tool calls，下一轮请求中的工具结果作为对话历史返回。Zero Risk
+（手动）模式没有自动路由，因此网关要求「With Automation」模式。
+
+Claude Code 示例：
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:17841"
+export ANTHROPIC_AUTH_TOKEN="local-bridge"   # 任意值；请求仅走本机回环
+export ANTHROPIC_MODEL="claude-sonnet-4-5"   # 映射到 ChatGPT Web High
+claude
+```
+
+OpenAI SDK / aider 示例：base URL `http://127.0.0.1:17841/v1`，API Key 任意，模型
+`chatgpt-web/high`（或 `gpt-5.6`、`claude-sonnet-4-5` 等）。
+
+</details>
+
+<details>
 <summary><strong>诊断与子代理</strong></summary>
 
 <a id="operations"></a>

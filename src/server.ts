@@ -48,9 +48,22 @@ import { expandPreviousResponseInput, flushResponseState, rememberResponseState 
 import { namespacedToolName, type AdapterEvent, type CodexParsedRequest } from "./types";
 import type { CodexProviderConfig } from "./types";
 import type { ProviderAdapter } from "./adapters/base";
+import { chatCompletionsRequest } from "./gateway/openai-compat";
+import { anthropicCountTokensRequest, anthropicMessagesRequest } from "./gateway/anthropic-compat";
+import { gatewayModelCatalog } from "./gateway/model-mapping";
+import { synthesizeGatewayTurnContext } from "./gateway/turn-context";
 import { VERSION } from "./version";
 
-type HttpTrackedEndpoint = "models" | "responses" | "compact" | "search" | "unspecified" | NativeImageEndpoint;
+type HttpTrackedEndpoint =
+  | "models"
+  | "responses"
+  | "compact"
+  | "search"
+  | "unspecified"
+  | "gateway-chat"
+  | "gateway-messages"
+  | "gateway-count-tokens"
+  | NativeImageEndpoint;
 
 export interface NativeCodexTurnIdentity {
   threadId: string;
@@ -351,7 +364,7 @@ export class HttpTurnCounter {
   }
 }
 
-type ChatGptWebAdapterFactory = (provider: CodexProviderConfig) => ProviderAdapter;
+export type ChatGptWebAdapterFactory = (provider: CodexProviderConfig) => ProviderAdapter;
 
 export interface ResponseRequestOptions {
   /** DEV and other in-process harnesses can keep continuation state in their own canonical store. */
@@ -360,6 +373,263 @@ export interface ResponseRequestOptions {
   onAdapterEvent?: (event: AdapterEvent) => void;
   /** Bind the physical HTTP stream to the exact native Codex turn that owns it. */
   onTurnIdentity?: (identity: NativeCodexTurnIdentity) => void;
+}
+
+/** A fully guarded, adapter-bound turn awaiting its Responses encoding. */
+export interface PreparedResponsesTurn {
+  parsed: CodexParsedRequest;
+  route: ChatGptWebModelRoute;
+  provider: CodexProviderConfig;
+  maps: ReturnType<typeof toolBridgeMaps>;
+  responseModel: string;
+  queue: AsyncEventQueue<AdapterEvent>;
+  abort: AbortController;
+  runPromise: Promise<void>;
+  compaction: boolean;
+  rememberCompletedResponse: (response: Record<string, unknown>) => void;
+  /** True when the gateway synthesized turn identity for a non-Codex client (browser-only semantics). */
+  synthesized: boolean;
+}
+
+export type PreparedTurnResult =
+  | { error: Response; turn?: undefined }
+  | { error?: undefined; turn: PreparedResponsesTurn };
+
+/**
+ * Shared turn pipeline for every ChatGPT Web request shape: the native Responses endpoint, the
+ * gateway translations, and in-process DEV harnesses. Body must already be gated to a
+ * `chatgpt-web/` model. Requests without native Codex turn metadata are synthesized as gateway
+ * turns (browser-only capabilities); Codex requests keep their strict native validation.
+ */
+export async function prepareResponsesTurn(
+  raw: unknown,
+  config: AppConfig,
+  adapterFactory: ChatGptWebAdapterFactory = createChatGptWebAdapter,
+  options: ResponseRequestOptions & { signal?: AbortSignal; headers?: Headers } = {},
+): Promise<PreparedTurnResult> {
+  const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const synthesized = synthesizeGatewayTurnContext(body) !== undefined;
+  const effectiveConfig = synthesized ? { ...config, mode: "browser-only" as const } : config;
+  const requestedPreviousResponseId = body.previous_response_id;
+  const expanded = expandPreviousResponseInput(body);
+  let parsed: CodexParsedRequest;
+  let route: ChatGptWebModelRoute;
+  try {
+    parsed = parseRequest(expanded);
+    route = routeChatGptWebRequest(parsed, effectiveConfig);
+    const identity = extractChatGptTurnIdentity(parsed);
+    if (identity.threadId && identity.turnId) {
+      options.onTurnIdentity?.({ threadId: identity.threadId, turnId: identity.turnId });
+    }
+  } catch (error) {
+    return { error: formatErrorResponse(400, "invalid_request_error", error instanceof Error ? error.message : String(error)) };
+  }
+  if (parsed._opaqueMultiAgentV2Payload) {
+    return { error: formatErrorResponse(
+      400,
+      "invalid_request_error",
+      "ChatGPT Web cannot read this encrypted cross-backend subagent payload. "
+        + "Start a new Compatibility V1 task, or delegate from a Web model whose collaboration call uses the plaintext-delivery marker.",
+    ) };
+  }
+  if (typeof requestedPreviousResponseId === "string" && expanded === body) {
+    return { error: formatErrorResponse(
+      409,
+      "invalid_request_error",
+      "Local continuation state for previous_response_id is unavailable; refusing to run ChatGPT Web with partial Codex context. Compact the Codex task or start a new task before retrying.",
+    ) };
+  }
+
+  const compaction = parsed._compactionRequest === true;
+  const rememberCompletedResponse = (response: Record<string, unknown>): void => {
+    if (!compaction) {
+      if (options.rememberState !== false) rememberResponseState(parsed._rawBody, response, { force: true });
+      return;
+    }
+    if (response.status !== "completed") return;
+    const identity = extractChatGptTurnIdentity(parsed);
+    if (!identity.threadId || !identity.turnId || !Array.isArray(response.output) || response.output.length !== 1) return;
+    const item = response.output[0];
+    if (item?.type !== "compaction" || typeof item.encrypted_content !== "string") return;
+    const summary = decodeCompactionSummary(item.encrypted_content);
+    if (!summary) return;
+    const source = extractChatGptCompactionSourceRevision(parsed);
+    const rawBody = parsed._rawBody as { input?: unknown[] };
+    // v1 installs the bounded user-message output, whereas v2 retains the original source.
+    // Authenticate both exact producer-defined representations, never arbitrary rewrites.
+    const v1Source = extractChatGptCompactionSourceRevision({
+      ...parsed,
+      _rawBody: { ...rawBody, input: buildCompactV1Output(extractCompactUserMessages(rawBody.input), summary) },
+    });
+    rememberCompactionContinuation(parsed, identity, [source, v1Source], summary);
+  };
+  if (compaction && route.backendModel === CHATGPT_WEB_LUNA_BACKEND_MODEL) {
+    return { error: formatErrorResponse(
+      409,
+      "invalid_request_error",
+      "ChatGPT Web Luna uses a rolling checkpoint on every completed browser turn; separate Codex compaction is disabled for this route.",
+    ) };
+  }
+  if (compaction) {
+    // History compaction is a dedicated summarization turn. It must never bind the active Codex
+    // tool bridge or continue an in-flight MCP round; the returned summary becomes the next turn's
+    // replacement history through the Responses compaction contract.
+    delete parsed.context.tools;
+    delete parsed.options.toolChoice;
+    delete parsed.options.parallelToolCalls;
+    parsed.context.messages.push({ role: "user", content: COMPACT_PROMPT, timestamp: Date.now() });
+  }
+
+  const provider = providerConfig(effectiveConfig);
+  let traceId: string | undefined;
+  try {
+    traceId = chatGptWebTraceId(provider, parsed);
+  } catch (error) {
+    // A cancelled browser session can only exist after the adapter accepted canonical native
+    // turn identity and user-revision metadata. Requests without that identity have no matching
+    // trace tombstone; preserve the adapter's existing strict validation/error path below.
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === CHATGPT_TURN_REVISION_CONFLICT_MESSAGE) {
+      // Codex can reopen an interrupted task with only refreshed developer/skill context under a
+      // new turn_id. Its last human prompt still belongs to the stopped turn and must not be
+      // replayed as new work. HTTP 400 makes that malformed recovery request terminal instead of
+      // allowing Codex to retry it as an upstream 502.
+      return { error: formatErrorResponse(400, "invalid_request_error", message) };
+    }
+    if (!message.includes("requires native Codex turn_id metadata")
+      && !message.includes("requires a current-turn user message")) throw error;
+  }
+  const cancelledError = traceId ? chatGptTurnSessions.cancelledError(traceId) : undefined;
+  if (cancelledError) {
+    // Codex retries unknown streamed response.failed codes. A replay after the user explicitly
+    // closed the only browser document is instead a terminal client state: repeating that exact
+    // request is invalid and must not recreate the DOM. Codex maps HTTP 400 to its non-retryable
+    // InvalidRequest category while the body preserves the real client_cancelled classification.
+    return { error: new Response(JSON.stringify({
+      error: {
+        type: "client_closed_request",
+        code: "client_cancelled",
+        message: cancelledError.message,
+      },
+    }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    }) };
+  }
+  const adapter = adapterFactory(provider);
+  const queue = new AsyncEventQueue<AdapterEvent>();
+  const abort = new AbortController();
+  if (options.signal?.aborted) abort.abort();
+  else options.signal?.addEventListener("abort", () => abort.abort(), { once: true });
+  const run = async () => {
+    try {
+      await adapter.runTurn!(parsed, { headers: options.headers ?? new Headers(), abortSignal: abort.signal }, event => {
+        options.onAdapterEvent?.(event);
+        queue.push(event);
+      });
+    } catch (error) {
+      const event: AdapterEvent = { type: "error", message: error instanceof Error ? error.message : String(error) };
+      options.onAdapterEvent?.(event);
+      queue.push(event);
+    } finally {
+      queue.close();
+    }
+  };
+  return {
+    turn: {
+      parsed,
+      route,
+      provider,
+      maps: toolBridgeMaps(parsed),
+      responseModel: route.slug,
+      queue,
+      abort,
+      runPromise: run(),
+      compaction,
+      rememberCompletedResponse,
+      synthesized,
+    },
+  };
+}
+
+export async function responseRequest(
+  req: Request,
+  config: AppConfig,
+  adapterFactory: ChatGptWebAdapterFactory = createChatGptWebAdapter,
+  options: ResponseRequestOptions = {},
+): Promise<Response> {
+  const nativeRequest = req.clone();
+  let raw: unknown;
+  try {
+    raw = await readJsonRequestBody(req);
+  } catch (error) {
+    return formatErrorResponse(
+      400,
+      "invalid_request_error",
+      error instanceof Error ? error.message : "Request body must be valid JSON",
+    );
+  }
+  const requestedModel = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as { model?: unknown }).model
+    : undefined;
+  try {
+    const identity = extractCodexTurnIdentityFromBody(raw);
+    if (identity.threadId && identity.turnId) {
+      options.onTurnIdentity?.({ threadId: identity.threadId, turnId: identity.turnId });
+    }
+  } catch (error) {
+    return formatErrorResponse(400, "invalid_request_error", error instanceof Error ? error.message : String(error));
+  }
+  if (typeof requestedModel === "string" && !isChatGptWebModelSlug(requestedModel)) {
+    try {
+      return await forwardNativeCodexRequest(nativeRequest, "responses", undefined, raw);
+    } catch (error) {
+      return formatErrorResponse(502, "upstream_error", error instanceof Error ? error.message : String(error));
+    }
+  }
+  const prepared = await prepareResponsesTurn(raw, config, adapterFactory, { ...options, signal: req.signal });
+  if (prepared.error) return prepared.error;
+  const turn = prepared.turn;
+
+  if (turn.parsed.stream) {
+    const stream = bridgeToResponsesSSE(
+      turn.queue,
+      turn.responseModel,
+      turn.maps.toolNsMap,
+      turn.maps.freeformToolNames,
+      turn.maps.toolSearchToolNames,
+      () => turn.abort.abort(),
+      2_000,
+      {
+        hideThinkingSummary: turn.parsed.options.hideThinkingSummary,
+        ...(turn.provider.chatgptWeb?.stallTimeoutSec !== undefined
+          ? { stallTimeoutSec: turn.provider.chatgptWeb.stallTimeoutSec }
+          : {}),
+        ...(turn.compaction ? { compaction: true } : {}),
+        onCompletedResponse: turn.rememberCompletedResponse,
+      },
+    );
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
+  await turn.runPromise;
+  const events = await turn.queue.collect();
+  const json = buildResponseJSON(events, turn.responseModel, {
+    hideThinkingSummary: turn.parsed.options.hideThinkingSummary,
+    toolNsMap: turn.maps.toolNsMap,
+    freeformToolNames: turn.maps.freeformToolNames,
+    toolSearchToolNames: turn.maps.toolSearchToolNames,
+    ...(turn.compaction ? { compaction: true } : {}),
+  });
+  turn.rememberCompletedResponse(json);
+  return Response.json(json);
 }
 
 export function routeChatGptWebRequest(parsed: CodexParsedRequest, config: AppConfig): ChatGptWebModelRoute {
@@ -462,213 +732,6 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
     if (tool.toolSearch) toolSearchToolNames.add(tool.name);
   }
   return { toolNsMap, freeformToolNames, toolSearchToolNames };
-}
-
-export async function responseRequest(
-  req: Request,
-  config: AppConfig,
-  adapterFactory: ChatGptWebAdapterFactory = createChatGptWebAdapter,
-  options: ResponseRequestOptions = {},
-): Promise<Response> {
-  const nativeRequest = req.clone();
-  let raw: unknown;
-  try {
-    raw = await readJsonRequestBody(req);
-  } catch (error) {
-    return formatErrorResponse(
-      400,
-      "invalid_request_error",
-      error instanceof Error ? error.message : "Request body must be valid JSON",
-    );
-  }
-  const requestedModel = raw && typeof raw === "object" && !Array.isArray(raw)
-    ? (raw as { model?: unknown }).model
-    : undefined;
-  try {
-    const identity = extractCodexTurnIdentityFromBody(raw);
-    if (identity.threadId && identity.turnId) {
-      options.onTurnIdentity?.({ threadId: identity.threadId, turnId: identity.turnId });
-    }
-  } catch (error) {
-    return formatErrorResponse(400, "invalid_request_error", error instanceof Error ? error.message : String(error));
-  }
-  if (typeof requestedModel === "string" && !isChatGptWebModelSlug(requestedModel)) {
-    try {
-      return await forwardNativeCodexRequest(nativeRequest, "responses", undefined, raw);
-    } catch (error) {
-      return formatErrorResponse(502, "upstream_error", error instanceof Error ? error.message : String(error));
-    }
-  }
-  const requestedPreviousResponseId = raw && typeof raw === "object" && !Array.isArray(raw)
-    ? (raw as { previous_response_id?: unknown }).previous_response_id
-    : undefined;
-  const expanded = expandPreviousResponseInput(raw);
-  let parsed: CodexParsedRequest;
-  let route: ChatGptWebModelRoute;
-  try {
-    parsed = parseRequest(expanded);
-    route = routeChatGptWebRequest(parsed, config);
-    const identity = extractChatGptTurnIdentity(parsed);
-    if (identity.threadId && identity.turnId) {
-      options.onTurnIdentity?.({ threadId: identity.threadId, turnId: identity.turnId });
-    }
-  } catch (error) {
-    return formatErrorResponse(400, "invalid_request_error", error instanceof Error ? error.message : String(error));
-  }
-  if (parsed._opaqueMultiAgentV2Payload) {
-    return formatErrorResponse(
-      400,
-      "invalid_request_error",
-      "ChatGPT Web cannot read this encrypted cross-backend subagent payload. "
-        + "Start a new Compatibility V1 task, or delegate from a Web model whose collaboration call uses the plaintext-delivery marker.",
-    );
-  }
-  if (typeof requestedPreviousResponseId === "string" && expanded === raw) {
-    return formatErrorResponse(
-      409,
-      "invalid_request_error",
-      "Local continuation state for previous_response_id is unavailable; refusing to run ChatGPT Web with partial Codex context. Compact the Codex task or start a new task before retrying.",
-    );
-  }
-
-  const compaction = parsed._compactionRequest === true;
-  const rememberCompletedResponse = (response: Record<string, unknown>): void => {
-    if (!compaction) {
-      if (options.rememberState !== false) rememberResponseState(parsed._rawBody, response, { force: true });
-      return;
-    }
-    if (response.status !== "completed") return;
-    const identity = extractChatGptTurnIdentity(parsed);
-    if (!identity.threadId || !identity.turnId || !Array.isArray(response.output) || response.output.length !== 1) return;
-    const item = response.output[0];
-    if (item?.type !== "compaction" || typeof item.encrypted_content !== "string") return;
-    const summary = decodeCompactionSummary(item.encrypted_content);
-    if (!summary) return;
-    const source = extractChatGptCompactionSourceRevision(parsed);
-    const body = parsed._rawBody as { input?: unknown[] };
-    // v1 installs the bounded user-message output, whereas v2 retains the original source.
-    // Authenticate both exact producer-defined representations, never arbitrary rewrites.
-    const v1Source = extractChatGptCompactionSourceRevision({
-      ...parsed,
-      _rawBody: { ...body, input: buildCompactV1Output(extractCompactUserMessages(body.input), summary) },
-    });
-    rememberCompactionContinuation(parsed, identity, [source, v1Source], summary);
-  };
-  if (compaction && route.backendModel === CHATGPT_WEB_LUNA_BACKEND_MODEL) {
-    return formatErrorResponse(
-      409,
-      "invalid_request_error",
-      "ChatGPT Web Luna uses a rolling checkpoint on every completed browser turn; separate Codex compaction is disabled for this route.",
-    );
-  }
-  if (compaction) {
-    // History compaction is a dedicated summarization turn. It must never bind the active Codex
-    // tool bridge or continue an in-flight MCP round; the returned summary becomes the next turn's
-    // replacement history through the Responses compaction contract.
-    delete parsed.context.tools;
-    delete parsed.options.toolChoice;
-    delete parsed.options.parallelToolCalls;
-    parsed.context.messages.push({ role: "user", content: COMPACT_PROMPT, timestamp: Date.now() });
-  }
-
-  const provider = providerConfig(config);
-  let traceId: string | undefined;
-  try {
-    traceId = chatGptWebTraceId(provider, parsed);
-  } catch (error) {
-    // A cancelled browser session can only exist after the adapter accepted canonical native
-    // turn identity and user-revision metadata. Requests without that identity have no matching
-    // trace tombstone; preserve the adapter's existing strict validation/error path below.
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === CHATGPT_TURN_REVISION_CONFLICT_MESSAGE) {
-      // Codex can reopen an interrupted task with only refreshed developer/skill context under a
-      // new turn_id. Its last human prompt still belongs to the stopped turn and must not be
-      // replayed as new work. HTTP 400 makes that malformed recovery request terminal instead of
-      // allowing Codex to retry it as an upstream 502.
-      return formatErrorResponse(400, "invalid_request_error", message);
-    }
-    if (!message.includes("requires native Codex turn_id metadata")
-      && !message.includes("requires a current-turn user message")) throw error;
-  }
-  const cancelledError = traceId ? chatGptTurnSessions.cancelledError(traceId) : undefined;
-  if (cancelledError) {
-    // Codex retries unknown streamed response.failed codes. A replay after the user explicitly
-    // closed the only browser document is instead a terminal client state: repeating that exact
-    // request is invalid and must not recreate the DOM. Codex maps HTTP 400 to its non-retryable
-    // InvalidRequest category while the body preserves the real client_cancelled classification.
-    return new Response(JSON.stringify({
-      error: {
-        type: "client_closed_request",
-        code: "client_cancelled",
-        message: cancelledError.message,
-      },
-    }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
-  }
-  const adapter = adapterFactory(provider);
-  const queue = new AsyncEventQueue<AdapterEvent>();
-  const abort = new AbortController();
-  if (req.signal.aborted) abort.abort();
-  else req.signal.addEventListener("abort", () => abort.abort(), { once: true });
-  const run = async () => {
-    try {
-      await adapter.runTurn!(parsed, { headers: req.headers, abortSignal: abort.signal }, event => {
-        options.onAdapterEvent?.(event);
-        queue.push(event);
-      });
-    } catch (error) {
-      const event: AdapterEvent = { type: "error", message: error instanceof Error ? error.message : String(error) };
-      options.onAdapterEvent?.(event);
-      queue.push(event);
-    } finally {
-      queue.close();
-    }
-  };
-  const maps = toolBridgeMaps(parsed);
-  const responseModel = route.slug;
-
-  if (parsed.stream) {
-    void run();
-    const stream = bridgeToResponsesSSE(
-      queue,
-      responseModel,
-      maps.toolNsMap,
-      maps.freeformToolNames,
-      maps.toolSearchToolNames,
-      () => abort.abort(),
-      2_000,
-      {
-        hideThinkingSummary: parsed.options.hideThinkingSummary,
-        ...(provider.chatgptWeb?.stallTimeoutSec !== undefined
-          ? { stallTimeoutSec: provider.chatgptWeb.stallTimeoutSec }
-          : {}),
-        ...(compaction ? { compaction: true } : {}),
-        onCompletedResponse: rememberCompletedResponse,
-      },
-    );
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
-  }
-
-  await run();
-  const events = await queue.collect();
-  const json = buildResponseJSON(events, responseModel, {
-    hideThinkingSummary: parsed.options.hideThinkingSummary,
-    toolNsMap: maps.toolNsMap,
-    freeformToolNames: maps.freeformToolNames,
-    toolSearchToolNames: maps.toolSearchToolNames,
-    ...(compaction ? { compaction: true } : {}),
-  });
-  rememberCompletedResponse(json);
-  return Response.json(json);
 }
 
 export async function compactRequest(
@@ -992,6 +1055,11 @@ export function startServer(
             "codex-chatgpt-web is draining for a requested service operation",
           );
         }
+        // Unauthenticated harness clients get the gateway catalog (OpenAI list shape) without
+        // touching the authenticated native upstream; Codex keeps its exact authenticated surface.
+        if (!req.headers.get("authorization")) {
+          return Response.json(gatewayModelCatalog(config));
+        }
         return httpTurns.track(async signal => {
           const request = ++modelCatalogRequests;
           const started = Date.now();
@@ -1066,6 +1134,43 @@ export function startServer(
           req.signal,
           process.platform,
           "compact",
+        );
+      }
+      if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+        if (draining) return formatErrorResponse(503, "server_error", "codex-chatgpt-web is draining for a requested service operation");
+        return httpTurns.track(
+          (signal, bindIdentity) => chatCompletionsRequest(
+            new Request(req, { signal }),
+            config,
+            dependencies.adapterFactory ?? createChatGptWebAdapter,
+            { onTurnIdentity: bindIdentity },
+          ),
+          req.signal,
+          process.platform,
+          "gateway-chat",
+        );
+      }
+      if (req.method === "POST" && url.pathname === "/v1/messages") {
+        if (draining) return formatErrorResponse(503, "server_error", "codex-chatgpt-web is draining for a requested service operation");
+        return httpTurns.track(
+          (signal, bindIdentity) => anthropicMessagesRequest(
+            new Request(req, { signal }),
+            config,
+            dependencies.adapterFactory ?? createChatGptWebAdapter,
+            { onTurnIdentity: bindIdentity },
+          ),
+          req.signal,
+          process.platform,
+          "gateway-messages",
+        );
+      }
+      if (req.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
+        if (draining) return formatErrorResponse(503, "server_error", "codex-chatgpt-web is draining for a requested service operation");
+        return httpTurns.track(
+          signal => anthropicCountTokensRequest(new Request(req, { signal })),
+          req.signal,
+          process.platform,
+          "gateway-count-tokens",
         );
       }
       if (req.method === "POST" && url.pathname === "/v1/alpha/search") {

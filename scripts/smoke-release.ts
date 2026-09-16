@@ -104,10 +104,17 @@ try {
   }
 
   const unauthenticatedModels = await fetch(`http://127.0.0.1:${port}/v1/models`);
-  const unauthenticatedModelsBody = await unauthenticatedModels.json() as { error?: { message?: string } };
-  if (unauthenticatedModels.status !== 502
-    || !unauthenticatedModelsBody.error?.message?.includes("incoming Bearer authorization")) {
-    throw new Error(`native model passthrough did not fail closed without Codex auth: ${JSON.stringify(unauthenticatedModelsBody)}`);
+  const unauthenticatedModelsBody = await unauthenticatedModels.json() as {
+    object?: string;
+    data?: Array<{ id?: string }>;
+    error?: { message?: string };
+  };
+  // Unauthenticated harness clients get the OpenAI-shaped gateway catalog; the authenticated
+  // native passthrough stays the Codex surface and still fails closed upstream without a Bearer.
+  if (unauthenticatedModels.status !== 200
+    || unauthenticatedModelsBody.object !== "list"
+    || !unauthenticatedModelsBody.data?.some(model => model.id === "chatgpt-web/high")) {
+    throw new Error(`gateway model catalog missing for unauthenticated clients: ${JSON.stringify(unauthenticatedModelsBody)}`);
   }
   const websocketNegotiation = await fetch(`http://127.0.0.1:${port}/v1/responses`);
   if (websocketNegotiation.status !== 426) {

@@ -75,6 +75,13 @@ preserving the native provider/task identity. Another process under the same OS 
 port. Run on a trusted single-user account and treat local code execution as inside the trust
 boundary.
 
+The open harness gateway (`/v1/chat/completions`, `/v1/messages`, `/v1/messages/count_tokens`,
+gateway `/v1/models`, and `/v1/responses` bodies without Codex turn metadata) shares that same
+loopback-only, credential-free boundary: any API-key value is accepted from local processes, and the
+listener never binds beyond 127.0.0.1. Gateway turns run with browser-only capabilities only — they
+never receive Codex turn authority, environment trust, or the MCP tool bridge — so a local process
+can use the ChatGPT Web models but cannot widen what a browser turn may do.
+
 The lifecycle endpoints are separate from the Responses surface. `/admin/drain`, `/admin/resume`,
 `/admin/cancel-turn`, `/admin/cancel-turns`, and `/admin/shutdown` require a random bearer token stored in the
 user-only application config. The launcher uses them to reject new work, prove that both the HTTP

@@ -3,11 +3,14 @@ import type { CodexModelContextOverride } from "./codex-integration";
 import {
   availableChatGptWebModelRoutes,
   CHATGPT_WEB_MODEL_PREFIX,
-  resolveChatGptWebContextLimits,
   type ChatGptWebModelRoute,
 } from "./chatgpt-web-models";
 
 type JsonObject = Record<string, unknown>;
+
+export const CHATGPT_WEB_CODEX_CONTEXT_WINDOW = 1_000_000;
+export const CHATGPT_WEB_CODEX_AUTO_COMPACT_TOKEN_LIMIT = 900_000;
+export const CHATGPT_WEB_CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 90;
 
 function object(value: unknown, label: string): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -104,7 +107,6 @@ export function buildChatGptWebModel(
   if (!templateSlug || templateSlug.startsWith(CHATGPT_WEB_MODEL_PREFIX)) {
     throw new Error("ChatGPT Web model template must be a native Codex model");
   }
-  const limits = resolveChatGptWebContextLimits(route.backendModel, route.adapterEffort, config);
   const multiAgentVersion = routedSubagentVersion(template, config);
   const priority = routedModelPriority(template, route, config);
   const model: JsonObject = {
@@ -133,10 +135,10 @@ export function buildChatGptWebModel(
     upgrade: null,
     default_reasoning_level: route.codexEffort,
     supported_reasoning_levels: [reasoningLevel(template, route.codexEffort, route.displayName)],
-    context_window: limits.contextWindow,
-    max_context_window: limits.contextWindow,
-    effective_context_window_percent: limits.effectiveContextWindowPercent,
-    auto_compact_token_limit: limits.autoCompactTokenLimit,
+    context_window: CHATGPT_WEB_CODEX_CONTEXT_WINDOW,
+    max_context_window: CHATGPT_WEB_CODEX_CONTEXT_WINDOW,
+    effective_context_window_percent: CHATGPT_WEB_CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+    auto_compact_token_limit: CHATGPT_WEB_CODEX_AUTO_COMPACT_TOKEN_LIMIT,
     // ChatGPT Web has no Codex service tier. Never inherit the native template's Fast tiers.
     additional_speed_tiers: [],
     service_tiers: [],

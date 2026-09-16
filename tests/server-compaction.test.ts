@@ -50,16 +50,23 @@ test("compacts ChatGPT Web v1 through a dedicated read-only browser summarizatio
   const providers: CodexProviderConfig[] = [];
   const previousSummary = `${SUMMARY_PREFIX}\nPrevious cumulative checkpoint`;
   const config = defaultConfig("full");
+  const turnMetadata = { thread_id: "thread_compact_v1", turn_id: "turn_compact_v1" };
   const response = await compactRequest(new Request("http://127.0.0.1:17841/v1/responses/compact", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       model,
+      client_metadata: { "x-codex-turn-metadata": JSON.stringify(turnMetadata) },
       input: [
         { type: "message", role: "user", content: [{ type: "input_text", text: "First request" }] },
         { type: "message", role: "assistant", content: [{ type: "output_text", text: "First answer" }] },
         { type: "message", role: "user", content: [{ type: "input_text", text: previousSummary }] },
-        { type: "message", role: "user", content: [{ type: "input_text", text: "Latest request" }] },
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Latest request" }],
+          internal_chat_message_metadata_passthrough: { turn_id: turnMetadata.turn_id },
+        },
       ],
     }),
   }), config, compactionAdapterFactory(providers, previousSummary));
@@ -314,7 +321,18 @@ test("returns exactly one native compaction item for a ChatGPT Web v2 request", 
       tool_choice: "auto",
       parallel_tool_calls: true,
       tools: [{ type: "function", name: "codex_exec", description: "Run", parameters: { type: "object" } }],
-      input: [{ type: "compaction_trigger" }],
+      client_metadata: {
+        "x-codex-turn-metadata": JSON.stringify({ thread_id: "thread_compact_v2", turn_id: "turn_compact_v2" }),
+      },
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: "Inspect the repository state",
+          internal_chat_message_metadata_passthrough: { turn_id: "turn_compact_v2" },
+        },
+        { type: "compaction_trigger" },
+      ],
     }),
   }), config, compactionAdapterFactory(providers));
 

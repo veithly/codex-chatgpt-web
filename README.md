@@ -109,6 +109,46 @@ that option clicks **Allow once**, never a permanent grant.
 </details>
 
 <details>
+<summary><strong>Open harness gateway (any client, no API key)</strong></summary>
+
+<a id="open-harness-gateway"></a>
+
+The local daemon also serves any harness, not just Codex. All endpoints are loopback-only; any
+dummy API key value is accepted and no OpenAI or Anthropic account is needed on the client side —
+the only login remains the ChatGPT Web session inside the launcher.
+
+| Surface | Endpoint | Notes |
+| --- | --- | --- |
+| OpenAI Responses | `POST /v1/responses` | Standard bodies work; Codex turn metadata is optional |
+| OpenAI Chat Completions | `POST /v1/chat/completions` | Streaming, `reasoning_content`, function tools, images |
+| Anthropic Messages | `POST /v1/messages` (+ `/v1/messages/count_tokens`) | Claude Code: set `ANTHROPIC_BASE_URL=http://127.0.0.1:17841` and any `ANTHROPIC_AUTH_TOKEN` |
+| Model catalog | `GET /v1/models` | OpenAI-shaped list without auth; authenticated callers keep the native Codex catalog |
+
+Any model string is accepted: `chatgpt-web/<slug>` is honored verbatim, while `gpt-*`, `claude-*`,
+or anything else maps onto the account's available routes using `reasoning_effort` and name flavor
+(haiku→Instant, sonnet→High, opus→Pro tier). Set `prompt_cache_key` (or keep it stable) to reuse one
+browser thread across a conversation and keep Luna's rolling checkpoint compression.
+
+Tool calling (aider, Claude Code, OpenAI SDK agents) works through a prompt-level tool protocol:
+the model answers with a sentinel-delimited invocation block that the gateway converts into standard
+tool calls, and the next request's tool results return as conversation history. Zero Risk (manual)
+mode has no automatic routes, so the gateway requires With Automation.
+
+Example — Claude Code on your ChatGPT account:
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:17841"
+export ANTHROPIC_AUTH_TOKEN="local-bridge"   # any value; requests stay on loopback
+export ANTHROPIC_MODEL="claude-sonnet-4-5"   # mapped to ChatGPT Web High
+claude
+```
+
+Example — OpenAI SDK / aider style base URL: `http://127.0.0.1:17841/v1` with any API key and model
+`chatgpt-web/high` (or `gpt-5.6`, `claude-sonnet-4-5`, …).
+
+</details>
+
+<details>
 <summary><strong>Diagnostics & subagents</strong></summary>
 
 <a id="operations"></a>

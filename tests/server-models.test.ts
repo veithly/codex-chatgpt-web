@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { defaultConfig } from "../src/config";
+import { CHATGPT_WEB_ZERO_RISK_MODEL_ROUTE } from "../src/chatgpt-web-models";
 import {
-  CHATGPT_WEB_ZERO_RISK_MODEL_ROUTE,
-  CHATGPT_WEB_MODEL_ROUTES,
-  resolveChatGptWebContextLimits,
-} from "../src/chatgpt-web-models";
+  CHATGPT_WEB_CODEX_AUTO_COMPACT_TOKEN_LIMIT,
+  CHATGPT_WEB_CODEX_CONTEXT_WINDOW,
+  CHATGPT_WEB_CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+} from "../src/model-catalog";
 import { modelsRequest } from "../src/server";
 
 test("proxies official /models auth and query, then appends the fixed ChatGPT Web models", async () => {
@@ -64,13 +65,11 @@ test("proxies official /models auth and query, then appends the fixed ChatGPT We
   expect(body.models[0]!.max_context_window).toBe(371_851);
   expect(body.models[0]!.auto_compact_token_limit).toBe(270_000);
   expect(body.models[0]!.multi_agent_version).toBe("v2");
-  for (const [index, model] of body.models.slice(1).entries()) {
-    const route = CHATGPT_WEB_MODEL_ROUTES[index]!;
-    const limits = resolveChatGptWebContextLimits(route.backendModel, route.adapterEffort, config);
-    expect(model.context_window).toBe(limits.contextWindow);
-    expect(model.max_context_window).toBe(limits.contextWindow);
-    expect(model.effective_context_window_percent).toBe(limits.effectiveContextWindowPercent);
-    expect(model.auto_compact_token_limit).toBe(limits.autoCompactTokenLimit);
+  for (const model of body.models.slice(1)) {
+    expect(model.context_window).toBe(CHATGPT_WEB_CODEX_CONTEXT_WINDOW);
+    expect(model.max_context_window).toBe(CHATGPT_WEB_CODEX_CONTEXT_WINDOW);
+    expect(model.effective_context_window_percent).toBe(CHATGPT_WEB_CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT);
+    expect(model.auto_compact_token_limit).toBe(CHATGPT_WEB_CODEX_AUTO_COMPACT_TOKEN_LIMIT);
     expect(model.supported_in_api).toBe(true);
     expect(model.priority).toBe(1);
     expect(model.multi_agent_version).toBe("v2");
@@ -137,10 +136,10 @@ test("Zero Risk returns one generic Web row without using scanned capabilities",
     upgrade: null,
     default_reasoning_level: "low",
     input_modalities: ["text"],
-    context_window: 123_000,
-    max_context_window: 123_000,
-    effective_context_window_percent: 78,
-    auto_compact_token_limit: 96_000,
+    context_window: CHATGPT_WEB_CODEX_CONTEXT_WINDOW,
+    max_context_window: CHATGPT_WEB_CODEX_CONTEXT_WINDOW,
+    effective_context_window_percent: CHATGPT_WEB_CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+    auto_compact_token_limit: CHATGPT_WEB_CODEX_AUTO_COMPACT_TOKEN_LIMIT,
     additional_speed_tiers: [],
     service_tiers: [],
     default_service_tier: null,

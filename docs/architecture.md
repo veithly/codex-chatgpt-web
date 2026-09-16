@@ -17,6 +17,40 @@ launcher-owned codex-chatgpt-web daemon
       ChatGPT custom connector
 ```
 
+## Open harness gateway
+
+The daemon is not limited to Codex. Requests that carry native Codex turn metadata keep the exact
+native authority chain; requests without any `client_metadata["x-codex-turn-metadata"]` are treated
+as gateway turns: the daemon synthesizes an equivalent identity, runs the turn with browser-only
+capabilities (no Codex environment trust, no broker, no MCP connector), and serves the following
+surfaces on the same loopback listener:
+
+- `POST /v1/responses` — a plain OpenAI Responses body now works for any harness client.
+- `POST /v1/chat/completions` — OpenAI Chat Completions translation, including `reasoning_content`
+  deltas, function tool calls, and images. `reasoning_effort` and model-name flavors
+  (`gpt-*`, `claude-*`, or anything else) map onto the account's available ChatGPT Web routes; an
+  explicit `chatgpt-web/<slug>` is honored verbatim.
+- `POST /v1/messages` and `POST /v1/messages/count_tokens` — Anthropic Messages translation so
+  Claude Code and other Anthropic-native harnesses can point `ANTHROPIC_BASE_URL` at the daemon
+  with any dummy token. System prompts, tool definitions, `tool_use`/`tool_result` blocks, and
+  base64 images are translated losslessly for the bridge; thinking blocks are emitted only when the
+  client enables thinking.
+- `GET /v1/models` without an `Authorization` header returns the OpenAI-shaped gateway catalog of
+  the account's available routes; authenticated requests keep the exact native Codex catalog.
+
+Browser-only ChatGPT turns are single-shot and have no MCP connector surface, so client-side
+harness tools are bridged at the prompt layer (`src/gateway/tool-protocol.ts`): the tool contract
+travels inside the compiled task context, the model answers with a sentinel-delimited invocation
+block, and the gateway event filter converts it into standard tool_call events before encoding.
+Tool results return in the next request as ordinary tool_result history records. An unterminated or
+unparseable block degrades to visible prose; nothing the model writes is silently dropped.
+
+Gateway turns reuse one stable thread (and Luna's rolling checkpoint) when the client supplies a
+`prompt_cache_key`; without one every request is an independent thread with no cross-request state.
+Gateway turns always fail closed on Zero Risk (manual interaction) configurations because that mode
+has no automatic routes, and they never weaken the native Codex path: any request that carries Codex
+turn metadata is validated exactly as before.
+
 ## Modes
 
 ### `browser-only`
