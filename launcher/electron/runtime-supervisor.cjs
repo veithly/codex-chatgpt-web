@@ -375,6 +375,25 @@ class RuntimeSupervisor {
     );
   }
 
+  /**
+   * Merge fields into the launcher-owned core configuration, validate with the same rules as
+   * readConfig, and replace the file atomically (owner-only). Used for lightweight runtime
+   * settings that the daemon and browser host read live or at next start.
+   */
+  updateConfigFields(patch) {
+    if (!fs.existsSync(this.configPath)) throw new Error("Core configuration is missing");
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      throw new Error("Core configuration patch must be an object");
+    }
+    const raw = readJson(this.configPath);
+    const merged = { ...raw, ...patch };
+    validateConfig(merged, this.browserDescriptorPath, this.platform, this.launcherProfile);
+    const temp = `${this.configPath}.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(temp, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(temp, this.configPath);
+    return merged;
+  }
+
   readSetupConfig() {
     if (!fs.existsSync(this.configPath)) return null;
     const config = readJson(this.configPath);

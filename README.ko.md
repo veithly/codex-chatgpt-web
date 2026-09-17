@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">모든 릴리스</a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">모든 릴리스</a>
 </p>
 
 <p align="center">
@@ -162,8 +162,8 @@ MCP 서버(`chatgpt_web_chat`, `chatgpt_web_models`, `chatgpt_web_reset`)는 세
 대화 머리(모델 + instructions + 첫 사용자 메시지)에서 안정적인 세션 키를 도출하며, 명시적인
 `prompt_cache_key`(또는 MCP `session_id`)가 있으면 이를 우선합니다. 대화가 끝나도 페이지는 바로
 닫히지 않고 `retainedConversationIdleMinutes`(기본 10분) 동안 같은 세션의 후속 요청을 기다린 뒤
-닫힙니다. `~/.codex-chatgpt-web/config.json`에 `"temporaryChat": false`를 설정하면 Temporary Chat
-대신 일반(기록에 남는) 채팅으로 턴을 진행합니다. 기본값은 Temporary입니다.
+닫힙니다. Temporary Chat을 끄면(또는 `"temporaryChat": false` 설정) 일반(기록에 남는) 채팅으로
+턴을 진행합니다. 기본값은 Temporary입니다. 두 항목 모두 런처 설정 화면에서도 변경할 수 있습니다.
 
 </details>
 

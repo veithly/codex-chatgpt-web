@@ -2703,3 +2703,72 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+.idle-select {
+  min-width: 96px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-heavy);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.gateway-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.gateway-card > p {
+  margin: 0;
+  color: var(--color-text-secondary, inherit);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.gateway-endpoint {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.gateway-endpoint > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gateway-endpoint small {
+  opacity: 0.65;
+  font-size: 11px;
+}
+
+.gateway-endpoint code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.gateway-endpoint > button {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-heavy);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gateway-endpoint > button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}

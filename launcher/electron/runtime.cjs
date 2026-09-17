@@ -1057,6 +1057,43 @@ class RuntimeHost {
     return { ...result, mode };
   }
 
+  /**
+   * Merge lightweight fields into the core configuration (atomic, validated). Optionally restart
+   * the supervised runtime so the daemon picks the new values up; launcher-side readers (browser
+   * host surface URL, retained-conversation TTL) re-read the config live per call.
+   */
+  async setCoreRuntimeConfig(patch, { restartRuntime = false } = {}) {
+    if (this.currentOperation()) {
+      throw new Error(`Another launcher operation is active: ${this.currentOperation()}`);
+    }
+    this.lifecycleOperation = "core-config-update";
+    try {
+      const config = this.supervisor.updateConfigFields(patch);
+      if (restartRuntime) {
+        await this.supervisor.stopForSetup();
+        await this.supervisor.startIfConfigured();
+      }
+      return config;
+    } finally {
+      this.lifecycleOperation = null;
+    }
+  }
+
+  /** Loopback gateway endpoints and the runtime settings the Settings surface edits. */
+  gatewayEndpointInfo() {
+    const config = this.runtimeConfigSnapshot().config;
+    const port = Number.isInteger(config?.port) ? config.port : 17841;
+    return {
+      configured: Boolean(config),
+      baseUrl: `http://127.0.0.1:${port}`,
+      port,
+      temporaryChat: config?.temporaryChat !== false,
+      retainedConversationIdleMinutes: Number.isFinite(config?.retainedConversationIdleMinutes)
+        ? config.retainedConversationIdleMinutes
+        : 10,
+    };
+  }
+
   async setBiggerContext(enabled) {
     const current = this.runtimeConfigSnapshot();
     if (!current.configured) {

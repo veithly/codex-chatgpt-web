@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-win-x64.exe"><img src="assets/readme/download-windows.svg" width="224" height="64" alt="Windows · x64"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-mac-arm64.dmg"><img src="assets/readme/download-macos.svg" width="224" height="64" alt="macOS · Apple silicon"></a>&nbsp;
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-linux-x64.AppImage"><img src="assets/readme/download-linux.svg" width="224" height="64" alt="Linux · x64"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.9/codex-web-gpt-5.0.9-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">All releases</a>
+  <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.1.0/codex-web-gpt-5.1.0-mac-x64.dmg">macOS Intel</a> · <a href="https://github.com/miuuyy/codex-chatgpt-web/releases/latest">All releases</a>
 </p>
 
 <p align="center">
@@ -162,9 +162,9 @@ no configuration needed. The gateway derives a stable session from the conversat
 instructions + first user message); an explicit `prompt_cache_key` (or MCP `session_id`) overrides
 that derivation and is the way to keep two same-head conversations separate. A finished chat page
 stays open afterwards waiting for a same-session follow-up and is closed only after
-`retainedConversationIdleMinutes` (default 10) idle minutes. Set `"temporaryChat": false` in
-`~/.codex-chatgpt-web/config.json` to run turns through normal (history-visible) chats instead of
-Temporary Chats; the default stays Temporary.
+`retainedConversationIdleMinutes` (default 10) idle minutes. Turning off Temporary Chat (or the
+`"temporaryChat": false` config field) runs turns through normal (history-visible) chats instead;
+the default stays Temporary. Both options also live in the launcher Settings surface.
 
 </details>
 

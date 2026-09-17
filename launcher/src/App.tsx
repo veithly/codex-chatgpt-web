@@ -1593,6 +1593,40 @@ function SettingsSurface({
   const [busy, setBusy] = useState(false);
   const [turnsCancelled, setTurnsCancelled] = useState(false);
   const [integrationRemoved, setIntegrationRemoved] = useState(false);
+  const [gateway, setGateway] = useState(snapshot.gateway);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copyGatewayValue = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1_500);
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  };
+  const setTemporaryChat = async (enabled: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setGateway(await api!.setTemporaryChat(enabled));
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setRetainedIdleMinutes = async (minutes: number) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setGateway(await api!.setRetainedIdleMinutes(minutes));
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const updateLanguage = async (next: Language) => {
     try {
@@ -1731,10 +1765,64 @@ function SettingsSurface({
             onChange={(checked) => void setSkillAttachments(checked)}
           />
         </SettingRow>
+        {!devProfile ? <SettingRow
+          body={copy.settingTemporaryChatBody}
+          label={copy.settingTemporaryChat}
+        >
+          <Switch
+            checked={gateway?.temporaryChat ?? true}
+            disabled={busy || gateway?.configured === false}
+            onChange={(checked) => void setTemporaryChat(checked)}
+          />
+        </SettingRow> : null}
+        {!devProfile ? <SettingRow
+          body={copy.idleCloseBody}
+          label={copy.idleClose}
+        >
+          <select
+            className="idle-select"
+            disabled={busy || gateway?.configured === false}
+            onChange={(event) => void setRetainedIdleMinutes(Number(event.target.value))}
+            value={gateway?.retainedConversationIdleMinutes ?? 10}
+          >
+            {[5, 10, 15, 30, 60, 120].map((minutes) => (
+              <option key={minutes} value={minutes}>{minutes} {copy.minutesUnit}</option>
+            ))}
+          </select>
+        </SettingRow> : null}
+
         <SettingRow body={copy.chooseLanguageHint} label={copy.language}>
           <LanguageMenu copy={copy} language={language} onChange={(next) => void updateLanguage(next)} />
         </SettingRow>
       </div>
+
+      {!devProfile && gateway?.configured !== false ? (
+        <>
+          <SectionHeading label={copy.gatewaySection} spaced />
+          <div className="gateway-card">
+            <p>{copy.gatewayBody}</p>
+            {([
+              { key: "openai", label: copy.gatewayOpenAI, value: `${gateway?.baseUrl ?? "http://127.0.0.1:17841"}/v1` },
+              { key: "anthropic", label: copy.gatewayAnthropic, value: gateway?.baseUrl ?? "http://127.0.0.1:17841" },
+              { key: "mcp", label: copy.gatewayMcp, value: "codex-chatgpt-web harness install all" },
+            ]).map((endpoint) => (
+              <div className="gateway-endpoint" key={endpoint.key}>
+                <span>
+                  <small>{endpoint.label}</small>
+                  <code>{endpoint.value}</code>
+                </span>
+                <button
+                  disabled={copiedKey === endpoint.key}
+                  onClick={() => void copyGatewayValue(endpoint.key, endpoint.value)}
+                  type="button"
+                >
+                  {copiedKey === endpoint.key ? copy.copied : copy.copyAction}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       {!devProfile && snapshot.state.codexRestartRequired ? (
         <NoticeRow icon="alert" tone="warning">

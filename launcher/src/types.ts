@@ -106,6 +106,13 @@ export interface LauncherSnapshot {
   connectorName: string;
   connectorNames: Record<BrowserInteractionMode, string>;
   mcpCredentialsConfigured: boolean;
+  gateway: {
+    configured: boolean;
+    baseUrl: string;
+    port: number;
+    temporaryChat: boolean;
+    retainedConversationIdleMinutes: number;
+  } | null;
   logs: LogRecord[];
   urls: {
     github: string;
@@ -149,6 +156,8 @@ export interface LauncherApi {
   cancelTurns(): Promise<{ stdout: string }>;
   uninstallIntegration(): Promise<{ cancelled: true } | { cancelled: false; state: LauncherState }>;
   setupCore(input?: { gatewayOnly?: boolean }): Promise<{ ok: boolean; stdout: string; restartRequired: boolean; gatewayOnly?: boolean }>;
+  setTemporaryChat(enabled: boolean): Promise<LauncherSnapshot["gateway"]>;
+  setRetainedIdleMinutes(minutes: number): Promise<LauncherSnapshot["gateway"]>;
   setupMcp(input: {
     tunnelId?: string;
     runtimeKey?: string;

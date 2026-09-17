@@ -509,6 +509,13 @@ function registerIpc({ logger, stateStore }) {
       manual: "Codex Zero Risk",
     },
     mcpCredentialsConfigured: runtimeHost?.mcpCredentialsConfigured() ?? false,
+    gateway: (() => {
+      try {
+        return runtimeHost?.gatewayEndpointInfo() ?? null;
+      } catch {
+        return null;
+      }
+    })(),
     logs: logger.recent(),
     urls: { github: GITHUB_URL, x: X_URL, connectors: CONNECTORS_URL, tunnels: TUNNELS_URL, keys: KEYS_URL },
     platform: process.platform,
@@ -851,6 +858,18 @@ function registerIpc({ logger, stateStore }) {
     const state = stateStore.update({ experimentalSkillAttachments: result.enabled });
     send("launcher:state-changed", state);
     return state;
+  });
+  handle("launcher:set-temporary-chat", async (_event, enabled) => {
+    await runtimeHost.setCoreRuntimeConfig({ temporaryChat: enabled === true }, { restartRuntime: true });
+    return runtimeHost.gatewayEndpointInfo();
+  });
+  handle("launcher:set-retained-idle-minutes", async (_event, minutes) => {
+    const value = Number(minutes);
+    if (!Number.isInteger(value) || value < 1 || value > 1_440) {
+      throw new Error("Idle close duration must be between 1 and 1440 minutes");
+    }
+    await runtimeHost.setCoreRuntimeConfig({ retainedConversationIdleMinutes: value });
+    return runtimeHost.gatewayEndpointInfo();
   });
   handle("launcher:zero-risk-pro", async (_event, enabled) => {
     const browserOperation = browserHost.currentOperation();

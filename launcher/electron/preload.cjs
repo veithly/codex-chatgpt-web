@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld("codexWebLauncher", {
   setBiggerContext: (enabled) => ipcRenderer.invoke("launcher:bigger-context", enabled),
   setSkillAttachments: (enabled) => ipcRenderer.invoke("launcher:skill-attachments", enabled),
   setZeroRiskPro: (enabled) => ipcRenderer.invoke("launcher:zero-risk-pro", enabled),
+  setTemporaryChat: (enabled) => ipcRenderer.invoke("launcher:set-temporary-chat", enabled),
+  setRetainedIdleMinutes: (minutes) => ipcRenderer.invoke("launcher:set-retained-idle-minutes", minutes),
   setBrowserInteractionMode: (mode) => ipcRenderer.invoke("launcher:browser-interaction-mode", mode),
   setPreference: (key, value) => ipcRenderer.invoke("launcher:set-preference", key, value),
   setSidebarState: (state) => ipcRenderer.invoke("launcher:sidebar-state", state),
